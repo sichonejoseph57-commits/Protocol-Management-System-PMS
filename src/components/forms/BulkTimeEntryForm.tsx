@@ -214,81 +214,82 @@ export default function BulkTimeEntryForm({
             </div>
           ) : (
             filteredEmployees.map((employee) => {
-            const data = employeeData[employee.id];
-            return (
-              <div key={employee.id} className="p-4 hover:bg-gray-50">
-                <div className="flex items-start gap-4">
-                  <Checkbox
-                    checked={data.selected}
-                    onCheckedChange={(checked) =>
-                      handleEmployeeChange(employee.id, 'selected', checked as boolean)
-                    }
-                    className="mt-1"
-                  />
-                  
-                  <div className="flex-1 space-y-3">
-                    <div>
-                      <p className="font-medium text-gray-900">{employee.name}</p>
-                      <p className="text-sm text-gray-600">
-                        {employee.position} - {employee.department}
-                      </p>
-                    </div>
-
-                    {data.selected && (
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Clock In</Label>
-                          <Input
-                            type="time"
-                            value={data.clockIn}
-                            onChange={(e) =>
-                              handleEmployeeChange(employee.id, 'clockIn', e.target.value)
-                            }
-                            required
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Clock Out</Label>
-                          <Input
-                            type="time"
-                            value={data.clockOut}
-                            onChange={(e) =>
-                              handleEmployeeChange(employee.id, 'clockOut', e.target.value)
-                            }
-                            required
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Break (min)</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="15"
-                            value={data.breakMinutes}
-                            onChange={(e) =>
-                              handleEmployeeChange(employee.id, 'breakMinutes', parseInt(e.target.value) || 0)
-                            }
-                            required
-                          />
-                        </div>
-                        <div className="col-span-3 space-y-1">
-                          <Label className="text-xs">Notes (Optional)</Label>
-                          <Textarea
-                            value={data.notes}
-                            onChange={(e) =>
-                              handleEmployeeChange(employee.id, 'notes', e.target.value)
-                            }
-                            placeholder="Add any notes..."
-                            rows={2}
-                          />
-                        </div>
+              const data = employeeData[employee.id];
+              return (
+                <div key={employee.id} className="p-4 hover:bg-gray-50">
+                  <div className="flex items-start gap-4">
+                    <Checkbox
+                      checked={data.selected}
+                      onCheckedChange={(checked) =>
+                        handleEmployeeChange(employee.id, 'selected', checked as boolean)
+                      }
+                      className="mt-1"
+                    />
+                    
+                    <div className="flex-1 space-y-3">
+                      <div>
+                        <p className="font-medium text-gray-900">{employee.name}</p>
+                        <p className="text-sm text-gray-600">
+                          {employee.position} - {employee.department}
+                        </p>
                       </div>
-                    )}
+
+                      {data.selected && (
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Clock In</Label>
+                            <Input
+                              type="time"
+                              value={data.clockIn}
+                              onChange={(e) =>
+                                handleEmployeeChange(employee.id, 'clockIn', e.target.value)
+                              }
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Clock Out</Label>
+                            <Input
+                              type="time"
+                              value={data.clockOut}
+                              onChange={(e) =>
+                                handleEmployeeChange(employee.id, 'clockOut', e.target.value)
+                              }
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Break (min)</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="15"
+                              value={data.breakMinutes}
+                              onChange={(e) =>
+                                handleEmployeeChange(employee.id, 'breakMinutes', parseInt(e.target.value) || 0)
+                              }
+                              required
+                            />
+                          </div>
+                          <div className="col-span-3 space-y-1">
+                            <Label className="text-xs">Notes (Optional)</Label>
+                            <Textarea
+                              value={data.notes}
+                              onChange={(e) =>
+                                handleEmployeeChange(employee.id, 'notes', e.target.value)
+                              }
+                              placeholder="Add any notes..."
+                              rows={2}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
 
