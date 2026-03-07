@@ -153,7 +153,7 @@ export async function createOrganization(
   return data.id;
 }
 
-export async function getOrganizations() { // Added this function to enclose the orphaned code block
+export async function getAllOrganizations() {
   const { data, error } = await supabase
     .from('organizations')
     .select('*')
@@ -163,14 +163,41 @@ export async function getOrganizations() { // Added this function to enclose the
   return data;
 }
 
-export async function getPlatformStats() {
-  const { data, error } = await supabase
-    .from('platform_stats')
-    .select('*')
-    .single();
+// Alias for backward compatibility
+export const getOrganizations = getAllOrganizations;
 
-  if (error) throw error;
-  return data;
+export async function getPlatformStats() {
+  // Calculate stats from organizations table since platform_stats view might not exist
+  const { data: orgs, error: orgsError } = await supabase
+    .from('organizations')
+    .select('subscription_status');
+  
+  if (orgsError) {
+    console.error('Failed to load organizations:', orgsError);
+    return {
+      total_clients: 0,
+      active_clients: 0,
+      trial_clients: 0,
+      suspended_clients: 0,
+      total_employees: 0,
+      total_revenue: 0,
+      monthly_revenue: 0,
+      pending_revenue: 0,
+    };
+  }
+  
+  const stats = {
+    total_clients: orgs?.length || 0,
+    active_clients: orgs?.filter(o => o.subscription_status === 'active').length || 0,
+    trial_clients: orgs?.filter(o => o.subscription_status === 'trial').length || 0,
+    suspended_clients: orgs?.filter(o => o.subscription_status === 'suspended').length || 0,
+    total_employees: 0,
+    total_revenue: 0,
+    monthly_revenue: 0,
+    pending_revenue: 0,
+  };
+  
+  return stats;
 }
 
 export async function getActiveSubscription(organizationId: string) {
