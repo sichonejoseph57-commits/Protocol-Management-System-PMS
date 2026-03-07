@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Employee, TimeEntry, UserProfile, AdminPermission } from '@/types';
+import { logActivity } from './activityLog';
 
 // Department functions
 export const getDepartments = async (): Promise<string[]> => {
@@ -224,15 +225,64 @@ export const saveEmployee = async (employee: Partial<Employee>, userId: string, 
   }
   
   console.log('Employee saved successfully:', data);
+  
+  // Log activity
+  try {
+    await logActivity(
+      organizationId,
+      userId,
+      userName,
+      isUpdate ? 'employee_edit' : 'employee_add',
+      'employee',
+      data[0]?.id || employee.id,
+      employee.name,
+      { department: employee.department, position: employee.position }
+    );
+  } catch (logError) {
+    console.error('Failed to log activity:', logError);
+  }
 };
 
 export const deleteEmployee = async (id: string): Promise<void> => {
+  // Get employee info before deleting for activity log
+  const { data: employee } = await supabase
+    .from('employees')
+    .select('name, organization_id')
+    .eq('id', id)
+    .single();
+  
   const { error } = await supabase
     .from('employees')
     .delete()
     .eq('id', id);
   
   if (error) throw error;
+  
+  // Log activity
+  if (employee) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('username')
+          .eq('id', user.id)
+          .single();
+        
+        await logActivity(
+          employee.organization_id,
+          user.id,
+          profile?.username || 'Unknown',
+          'employee_delete',
+          'employee',
+          id,
+          employee.name
+        );
+      }
+    } catch (logError) {
+      console.error('Failed to log activity:', logError);
+    }
+  }
 };
 
 // Time entry functions with optimized date range queries
@@ -344,23 +394,73 @@ export const saveTimeEntries = async (entries: Partial<TimeEntry>[], userId: str
     entered_by_name: userName,
   }));
 
-  const { error} = await supabase
+  const { data, error} = await supabase
     .from('time_entries')
-    .insert(dbEntries);
+    .insert(dbEntries)
+    .select();
   
   if (error) {
     console.error('Database error:', error);
     throw new Error('Failed to save time entries. Please check your permissions.');
   }
+  
+  // Log activity for bulk entry
+  try {
+    await logActivity(
+      organizationId,
+      userId,
+      userName,
+      'time_entry_add',
+      'time_entry',
+      data?.[0]?.id,
+      `${entries.length} time entries`,
+      { count: entries.length, date: entries[0]?.date }
+    );
+  } catch (logError) {
+    console.error('Failed to log activity:', logError);
+  }
 };
 
 export const deleteTimeEntry = async (id: string): Promise<void> => {
+  // Get entry info before deleting for activity log
+  const { data: entry } = await supabase
+    .from('time_entries')
+    .select('employee_name, organization_id, date')
+    .eq('id', id)
+    .single();
+  
   const { error } = await supabase
     .from('time_entries')
     .delete()
     .eq('id', id);
   
   if (error) throw error;
+  
+  // Log activity
+  if (entry) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('username')
+          .eq('id', user.id)
+          .single();
+        
+        await logActivity(
+          entry.organization_id,
+          user.id,
+          profile?.username || 'Unknown',
+          'time_entry_delete',
+          'time_entry',
+          id,
+          `${entry.employee_name} - ${entry.date}`
+        );
+      }
+    } catch (logError) {
+      console.error('Failed to log activity:', logError);
+    }
+  }
 };
 
 // User and Permission Management Functions

@@ -18,8 +18,10 @@ import {
   suspendOrganization, 
   activateOrganization,
   uploadOrganizationLogo,
-  calculateTieredPrice
+  calculateTieredPrice,
+  createOrganization
 } from '@/lib/organization';
+import { generateUniqueSubdomain } from '@/lib/subdomain';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/payroll';
 
@@ -164,37 +166,24 @@ export default function OwnerDashboard({ onViewAsClient }: OwnerDashboardProps) 
     }
 
     try {
-      // Generate subdomain from company name
-      const subdomain = newClientData.companyName
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '')
-        .substring(0, 30);
-
-      // Create organization first
-      const { data: newOrg, error: orgError } = await supabase
+      // Create organization with auto-generated subdomain
+      const organizationId = await createOrganization(
+        newClientData.companyName,
+        newClientData.contactEmail,
+        newClientData.contactPhone,
+        clientLogoFile || undefined
+      );
+      
+      // Get the created organization to show subdomain
+      const { data: newOrg } = await supabase
         .from('organizations')
-        .insert({
-          company_name: newClientData.companyName,
-          subdomain,
-          contact_email: newClientData.contactEmail,
-          contact_phone: newClientData.contactPhone,
-          subscription_status: 'trial',
-          max_employees: newClientData.expectedEmployees,
-          trial_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        })
-        .select()
+        .select('subdomain')
+        .eq('id', organizationId)
         .single();
-
-      if (orgError) throw orgError;
-
-      // Upload logo if provided
-      if (clientLogoFile && newOrg) {
-        await uploadOrganizationLogo(clientLogoFile, newOrg.id);
-      }
 
       toast({
         title: 'Client Added',
-        description: `${newClientData.companyName} has been successfully created`,
+        description: `${newClientData.companyName} has been successfully created. Login URL: ${newOrg?.subdomain}.pms.app`,
       });
       
       setShowAddClientDialog(false);

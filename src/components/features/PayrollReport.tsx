@@ -1,25 +1,53 @@
-import { useState } from 'react';
-import { Employee, TimeEntry } from '@/types';
+import { useState, useEffect } from 'react';
+import { Employee, TimeEntry, Deduction, EmployeeDeduction } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, DollarSign, Clock, Download } from 'lucide-react';
+import { Calendar, DollarSign, Clock, Download, Printer, Mail } from 'lucide-react';
 import { calculateMonthlyPayroll, formatCurrency } from '@/lib/payroll';
 import { getMonthYearOptions, formatMonthYear } from '@/lib/utils';
-import { exportPayrollReport } from '@/lib/export';
+import { exportPayrollReport, sendBulkPayslipEmails } from '@/lib/export';
+import { getDeductions, getEmployeeDeductions, calculateDeductions } from '@/lib/deductions';
+import { printPayslip } from '@/lib/payslip';
+import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 
 interface PayrollReportProps {
   employees: Employee[];
   timeEntries: TimeEntry[];
+  organization?: any;
 }
 
-export default function PayrollReport({ employees, timeEntries }: PayrollReportProps) {
+export default function PayrollReport({ employees, timeEntries, organization }: PayrollReportProps) {
   const [selectedMonth, setSelectedMonth] = useState(getMonthYearOptions()[0]);
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
+  const [deductions, setDeductions] = useState<Deduction[]>([]);
+  const [employeeDeductions, setEmployeeDeductions] = useState<Record<string, EmployeeDeduction[]>>({});
+  const [isSendingEmails, setIsSendingEmails] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    loadDeductions();
+  }, []);
+
+  const loadDeductions = async () => {
+    try {
+      const allDeductions = await getDeductions();
+      setDeductions(allDeductions);
+      
+      // Load employee deductions for all employees
+      const deductionsMap: Record<string, EmployeeDeduction[]> = {};
+      for (const emp of employees) {
+        const empDeds = await getEmployeeDeductions(emp.id);
+        deductionsMap[emp.id] = empDeds;
+      }
+      setEmployeeDeductions(deductionsMap);
+    } catch (error) {
+      console.error('Failed to load deductions:', error);
+    }
+  };
 
   const monthOptions = getMonthYearOptions();
   
@@ -27,9 +55,24 @@ export default function PayrollReport({ employees, timeEntries }: PayrollReportP
     ? employees 
     : employees.filter(e => e.id === selectedEmployee);
 
-  const payrollData = employeesToShow.map(employee =>
-    calculateMonthlyPayroll(employee.id, employee.name, selectedMonth, timeEntries)
-  ).filter(data => data.daysWorked > 0);
+  const payrollData = employeesToShow.map(employee => {
+    const basePayroll = calculateMonthlyPayroll(employee.id, employee.name, selectedMonth, timeEntries);
+    
+    // Calculate deductions
+    const empDeds = employeeDeductions[employee.id] || [];
+    const { totalDeductions, deductionBreakdown } = calculateDeductions(
+      basePayroll.totalPay,
+      deductions,
+      empDeds
+    );
+    
+    return {
+      ...basePayroll,
+      totalDeductions,
+      deductionBreakdown,
+      netPay: basePayroll.totalPay - totalDeductions,
+    };
+  }).filter(data => data.daysWorked > 0);
 
   const totals = payrollData.reduce(
     (acc, data) => ({
@@ -37,13 +80,15 @@ export default function PayrollReport({ employees, timeEntries }: PayrollReportP
       regularPay: acc.regularPay + data.regularPay,
       holidayPay: acc.holidayPay + data.holidayPay,
       totalPay: acc.totalPay + data.totalPay,
+      totalDeductions: acc.totalDeductions + (data.totalDeductions || 0),
+      netPay: acc.netPay + (data.netPay || data.totalPay),
     }),
-    { totalHours: 0, regularPay: 0, holidayPay: 0, totalPay: 0 }
+    { totalHours: 0, regularPay: 0, holidayPay: 0, totalPay: 0, totalDeductions: 0, netPay: 0 }
   );
 
   const handleExport = () => {
     try {
-      exportPayrollReport(payrollData);
+      exportPayrollReport(payrollData, organization?.companyName);
       toast({
         title: 'Success',
         description: `Exported payroll report for ${formatMonthYear(selectedMonth)}`,
@@ -54,6 +99,63 @@ export default function PayrollReport({ employees, timeEntries }: PayrollReportP
         description: error.message,
         variant: 'destructive',
       });
+    }
+  };
+
+  const handlePrintPayslip = (data: any) => {
+    const employee = employees.find(e => e.id === data.employeeId);
+    if (!employee) return;
+    
+    printPayslip({
+      employee,
+      payrollData: data,
+      organization: organization || { companyName: 'Protocol Management System', logoUrl: null },
+      month: selectedMonth,
+    });
+  };
+
+  const handleBulkEmail = async () => {
+    if (!organization) {
+      toast({
+        title: 'Error',
+        description: 'Organization information not available',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setIsSendingEmails(true);
+    try {
+      const { success, failed, errors } = await sendBulkPayslipEmails(
+        payrollData,
+        employees,
+        organization,
+        supabase
+      );
+      
+      if (success > 0) {
+        toast({
+          title: 'Emails Sent',
+          description: `Successfully sent ${success} payslip(s). ${failed > 0 ? `Failed: ${failed}` : ''}`,
+        });
+      }
+      
+      if (failed > 0 && errors.length > 0) {
+        console.error('Email errors:', errors);
+        toast({
+          title: 'Some emails failed',
+          description: errors.slice(0, 3).join(', '),
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Bulk email failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSendingEmails(false);
     }
   };
 
@@ -95,10 +197,21 @@ export default function PayrollReport({ employees, timeEntries }: PayrollReportP
 
         <div className="space-y-2">
           <Label>&nbsp;</Label>
-          <Button onClick={handleExport} variant="outline" className="w-full gap-2">
-            <Download className="w-4 h-4" />
-            Export to CSV
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={handleExport} variant="outline" className="flex-1 gap-2">
+              <Download className="w-4 h-4" />
+              Export CSV
+            </Button>
+            <Button 
+              onClick={handleBulkEmail} 
+              variant="outline" 
+              className="flex-1 gap-2"
+              disabled={isSendingEmails || payrollData.length === 0}
+            >
+              <Mail className="w-4 h-4" />
+              {isSendingEmails ? 'Sending...' : 'Email All'}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -171,6 +284,15 @@ export default function PayrollReport({ employees, timeEntries }: PayrollReportP
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                   Total Pay
                 </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Deductions
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Net Pay
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -214,6 +336,23 @@ export default function PayrollReport({ employees, timeEntries }: PayrollReportP
                       <td className="px-4 py-4 text-right text-sm font-bold text-primary">
                         {formatCurrency(data.totalPay)}
                       </td>
+                      <td className="px-4 py-4 text-right text-sm text-red-600 font-medium">
+                        {data.totalDeductions > 0 ? `-${formatCurrency(data.totalDeductions)}` : '-'}
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm font-bold text-green-600">
+                        {formatCurrency(data.netPay || data.totalPay)}
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => handlePrintPayslip(data)}
+                        >
+                          <Printer className="w-3 h-3" />
+                          Print
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                   <tr className="bg-gray-50 font-semibold">
@@ -233,6 +372,13 @@ export default function PayrollReport({ employees, timeEntries }: PayrollReportP
                     <td className="px-4 py-4 text-right text-primary text-lg">
                       {formatCurrency(totals.totalPay)}
                     </td>
+                    <td className="px-4 py-4 text-right text-red-600 text-lg font-semibold">
+                      -{formatCurrency(totals.totalDeductions)}
+                    </td>
+                    <td className="px-4 py-4 text-right text-green-600 text-lg font-bold">
+                      {formatCurrency(totals.netPay)}
+                    </td>
+                    <td className="px-4 py-4"></td>
                   </tr>
                 </>
               )}

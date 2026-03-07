@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Clock, DollarSign, TrendingUp, UserPlus, ClipboardList, RefreshCw, Shield, Settings as SettingsIcon, CreditCard, Sparkles } from 'lucide-react';
+import { Users, Clock, DollarSign, TrendingUp, UserPlus, ClipboardList, RefreshCw, Shield, Settings as SettingsIcon, CreditCard, Sparkles, Minus, FileText, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -16,6 +16,9 @@ import SubscriptionManagement from '@/components/features/SubscriptionManagement
 
 import AIWorkforceReport from '@/components/features/AIWorkforceReport';
 import OwnerDashboard from '@/components/features/OwnerDashboard';
+import DeductionManagement from '@/components/features/DeductionManagement';
+import ActivityLogs from '@/components/features/ActivityLogs';
+import MessagingCenter from '@/components/features/MessagingCenter';
 import { Employee, TimeEntry } from '@/types';
 import { getEmployees, saveEmployee, deleteEmployee, getTimeEntries, saveTimeEntries } from '@/lib/database';
 import { calculateTimeEntryPay, formatCurrency } from '@/lib/payroll';
@@ -439,7 +442,7 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full md:w-auto md:inline-grid grid-cols-3 md:grid-cols-8 gap-1">
+          <TabsList className="grid w-full md:w-auto md:inline-grid grid-cols-3 md:grid-cols-11 gap-1">
             {isOwner && !isViewingAsClient && (
               <TabsTrigger value="owner" className="gap-2">
                 <Shield className="w-4 h-4" />
@@ -453,6 +456,22 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
               <Sparkles className="w-4 h-4" />
               AI Reports
             </TabsTrigger>
+            {(adminUser.role === 'super_admin' || adminUser.role === 'admin') && (
+              <TabsTrigger value="deductions" className="gap-2">
+                <Minus className="w-4 h-4" />
+                Deductions
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="activity-logs" className="gap-2">
+              <FileText className="w-4 h-4" />
+              Activity
+            </TabsTrigger>
+            {(adminUser.role === 'super_admin' || adminUser.role === 'admin') && (
+              <TabsTrigger value="messages" className="gap-2">
+                <Mail className="w-4 h-4" />
+                Messages
+              </TabsTrigger>
+            )}
             {adminUser.role === 'super_admin' && (
               <>
                 <TabsTrigger value="subscription" className="gap-2">
@@ -513,6 +532,34 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
               <AIWorkforceReport organizationId={adminUser.organizationId} />
             </Card>
           </TabsContent>
+
+          {(adminUser.role === 'super_admin' || adminUser.role === 'admin') && (
+            <TabsContent value="deductions">
+              <Card className="p-6">
+                <DeductionManagement
+                  organizationId={adminUser.organizationId}
+                  userId={adminUser.id}
+                  employees={employees}
+                />
+              </Card>
+            </TabsContent>
+          )}
+
+          <TabsContent value="activity-logs">
+            <Card className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Activity Logs</h2>
+              <ActivityLogs organizationId={adminUser.organizationId} />
+            </Card>
+          </TabsContent>
+
+          {(adminUser.role === 'super_admin' || adminUser.role === 'admin') && (
+            <TabsContent value="messages">
+              <Card className="p-6">
+                <h2 className="text-xl font-bold text-gray-900 mb-4">Messaging Center</h2>
+                <MessagingCenter currentUser={adminUser} />
+              </Card>
+            </TabsContent>
+          )}
 
           {adminUser.role === 'super_admin' && (
             <>
