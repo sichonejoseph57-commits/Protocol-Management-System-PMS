@@ -61,22 +61,27 @@ export const getEmployees = async (
     position?: string;
   }
 ): Promise<Employee[]> => {
-  console.log('Fetching employees...');
+  console.log('[DB] Fetching employees...', { organizationId, options });
+  const startTime = Date.now();
   
   let query = supabase
     .from('employees')
-    .select('*')
+    .select('*', { count: 'exact' })
     .order('created_at', { ascending: false });
   
   // RLS will filter by organization automatically, but we can add explicit filter
-  if (organizationId) {
+  if (organizationId && organizationId !== 'none') {
     query = query.eq('organization_id', organizationId);
   }
 
   // Apply filters for better performance
   if (options?.status) {
     query = query.eq('status', options.status);
+  } else {
+    // Default: only fetch active employees for faster initial load
+    query = query.eq('status', 'active');
   }
+  
   if (options?.department) {
     query = query.eq('department', options.department);
   }
@@ -84,22 +89,24 @@ export const getEmployees = async (
     query = query.eq('position', options.position);
   }
 
-  // Apply pagination
-  if (options?.limit) {
-    query = query.limit(options.limit);
-  }
+  // Apply pagination - default to 100 for performance
+  const effectiveLimit = options?.limit || 100;
+  query = query.limit(effectiveLimit);
+  
   if (options?.offset) {
-    query = query.range(options.offset, options.offset + (options.limit || 50) - 1);
+    query = query.range(options.offset, options.offset + effectiveLimit - 1);
   }
   
-  const { data, error } = await query;
+  const { data, error, count } = await query;
+  
+  const duration = Date.now() - startTime;
   
   if (error) {
-    console.error('Employee fetch error:', error);
+    console.error('[DB] Employee fetch error:', error, `(${duration}ms)`);
     throw new Error(`Failed to load employees: ${error.message}`);
   }
   
-  console.log(`Fetched ${data?.length || 0} employees`);
+  console.log(`[DB] Fetched ${data?.length || 0} employees (total: ${count || 0}) in ${duration}ms`);
   
   return (data || []).map(emp => ({
     id: emp.id,
@@ -296,22 +303,30 @@ export const getTimeEntries = async (
     employeeId?: string;
   }
 ): Promise<TimeEntry[]> => {
-  console.log('Fetching time entries...');
+  console.log('[DB] Fetching time entries...', { organizationId, options });
+  const startTime = Date.now();
   
   let query = supabase
     .from('time_entries')
-    .select('*')
-    .order('date', { ascending: false });
+    .select('*', { count: 'exact' })
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false });
   
   // RLS will filter by organization automatically, but we can add explicit filter
-  if (organizationId) {
+  if (organizationId && organizationId !== 'none') {
     query = query.eq('organization_id', organizationId);
   }
 
   // Apply date range filter (most common query pattern)
+  // Default to last 7 days if no date range specified for faster load
   if (options?.startDate) {
     query = query.gte('date', options.startDate);
+  } else {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      .toISOString().split('T')[0];
+    query = query.gte('date', sevenDaysAgo);
   }
+  
   if (options?.endDate) {
     query = query.lte('date', options.endDate);
   }
@@ -321,22 +336,24 @@ export const getTimeEntries = async (
     query = query.eq('employee_id', options.employeeId);
   }
 
-  // Apply pagination
-  if (options?.limit) {
-    query = query.limit(options.limit);
-  }
+  // Apply pagination - default to 200 for performance
+  const effectiveLimit = options?.limit || 200;
+  query = query.limit(effectiveLimit);
+  
   if (options?.offset) {
-    query = query.range(options.offset, options.offset + (options.limit || 100) - 1);
+    query = query.range(options.offset, options.offset + effectiveLimit - 1);
   }
   
-  const { data, error } = await query;
+  const { data, error, count } = await query;
+  
+  const duration = Date.now() - startTime;
   
   if (error) {
-    console.error('Time entries fetch error:', error);
+    console.error('[DB] Time entries fetch error:', error, `(${duration}ms)`);
     throw new Error(`Failed to load time entries: ${error.message}`);
   }
   
-  console.log(`Fetched ${data?.length || 0} time entries`);
+  console.log(`[DB] Fetched ${data?.length || 0} time entries (total: ${count || 0}) in ${duration}ms`);
   
   return (data || []).map(entry => ({
     id: entry.id,
@@ -360,15 +377,16 @@ export const getTimeEntries = async (
   }));
 };
 
-// Get recent time entries (default 30 days for dashboard performance)
-export const getRecentTimeEntries = async (organizationId?: string, days: number = 30): Promise<TimeEntry[]> => {
+// Get recent time entries (default 7 days for dashboard performance)
+export const getRecentTimeEntries = async (organizationId?: string, days: number = 7): Promise<TimeEntry[]> => {
   const endDate = new Date().toISOString().split('T')[0];
   const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+  console.log(`[DB] Loading recent ${days} days of time entries`);
   return getTimeEntries(organizationId, {
     startDate,
     endDate,
-    limit: 500, // Reasonable limit for recent entries
+    limit: 200, // Reduced for faster initial load
   });
 };
 

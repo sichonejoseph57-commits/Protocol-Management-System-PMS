@@ -62,9 +62,18 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
   const { toast } = useToast();
 
   useEffect(() => {
-    loadData();
-    const cleanup = setupRealtimeSubscriptions();
-    return cleanup;
+    // Progressive loading: Load critical data first, then setup real-time
+    const initDashboard = async () => {
+      await loadData();
+      // Setup subscriptions after initial data load
+      const cleanup = setupRealtimeSubscriptions();
+      return cleanup;
+    };
+    
+    const cleanup = initDashboard();
+    return () => {
+      cleanup.then(fn => fn?.());
+    };
   }, [viewAsClientMode]);
 
   // Reset to employees tab when entering view-as-client mode
@@ -75,23 +84,33 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
   }, [isViewingAsClient]);
 
   const loadData = async () => {
+    const loadStartTime = Date.now();
+    console.log('[Dashboard] Starting data load...');
+    
     try {
       setIsLoading(true);
-      console.log('Loading dashboard data...');
       
-      // Performance optimization: Load only recent data (30 days) for faster initial load
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      // Performance optimization: Load only recent data (7 days) for instant initial load
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        .toISOString().split('T')[0];
       
-      // Add timeout protection
+      // Reduced timeout to 8 seconds for faster failure detection
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Data loading timeout - please check your connection')), 10000)
+        setTimeout(() => {
+          console.error('[Dashboard] Data load timeout after 8 seconds');
+          reject(new Error('Data loading timeout. Please check your connection and try refreshing.'));
+        }, 8000)
       );
       
+      // Progressive loading: Load critical data with optimized queries
       const dataPromise = Promise.all([
-        getEmployees(), // All employees (typically < 500)
-        getTimeEntries(undefined, { 
-          startDate: thirtyDaysAgo,
-          limit: 500 // Recent entries only
+        getEmployees(adminUser.organizationId, {
+          status: 'active', // Only active employees initially
+          limit: 100 // Reasonable limit
+        }),
+        getTimeEntries(adminUser.organizationId, { 
+          startDate: sevenDaysAgo,
+          limit: 200 // Last 7 days only for instant load
         }),
         getSystemSettings(),
       ]);
@@ -101,17 +120,52 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
         timeoutPromise
       ]) as any;
       
-      console.log(`Loaded ${employeesData.length} employees, ${entriesData.length} time entries`);
+      const loadDuration = Date.now() - loadStartTime;
+      console.log(
+        `[Dashboard] Load complete in ${loadDuration}ms:`,
+        `${employeesData.length} employees,`,
+        `${entriesData.length} time entries`
+      );
+      
       setEmployees(employeesData);
       setTimeEntries(entriesData);
       setSystemSettings(settings);
+      
+      // Show success notification for slow loads
+      if (loadDuration > 3000) {
+        toast({
+          title: 'Dashboard loaded',
+          description: `Data loaded in ${(loadDuration / 1000).toFixed(1)}s. Consider filtering for faster performance.`,
+        });
+      }
     } catch (error: any) {
-      console.error('Dashboard load error:', error);
+      const loadDuration = Date.now() - loadStartTime;
+      console.error(`[Dashboard] Load error after ${loadDuration}ms:`, error);
+      
+      // Provide actionable error messages
+      let errorMessage = error.message || 'Failed to load dashboard data.';
+      let errorTitle = 'Error loading data';
+      
+      if (error.message?.includes('timeout')) {
+        errorTitle = 'Connection Timeout';
+        errorMessage = 'The server is taking too long to respond. Please check your internet connection and try again.';
+      } else if (error.message?.includes('network')) {
+        errorTitle = 'Network Error';
+        errorMessage = 'Unable to connect to the server. Please check your internet connection.';
+      } else if (error.message?.includes('permission')) {
+        errorTitle = 'Access Denied';
+        errorMessage = 'You do not have permission to view this data. Please contact your administrator.';
+      }
+      
       toast({
-        title: 'Error loading data',
-        description: error.message || 'Failed to load dashboard data. Please refresh the page.',
+        title: errorTitle,
+        description: errorMessage,
         variant: 'destructive',
       });
+      
+      // Set empty data to allow UI to render
+      setEmployees([]);
+      setTimeEntries([]);
     } finally {
       setIsLoading(false);
     }

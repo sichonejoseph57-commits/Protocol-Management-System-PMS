@@ -34,51 +34,76 @@ export function useAuth() {
     let mounted = true;
     let timeoutId: NodeJS.Timeout;
 
-    // Safety timeout - ensure loading state clears even if queries fail
+    // Reduced timeout to 3 seconds for faster failure detection
     timeoutId = setTimeout(() => {
       if (mounted) {
-        console.warn('Auth initialization timeout - clearing loading state');
+        console.warn('[Auth] Initialization timeout after 3s - clearing loading state');
         setIsLoading(false);
       }
-    }, 5000); // 5 second maximum loading time
+    }, 3000);
 
     // Check existing session and fetch user profile
     const loadUser = async () => {
+      const startTime = Date.now();
       try {
-        console.log('Starting auth initialization...');
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        console.log('[Auth] Starting initialization...');
+        
+        // Add timeout to getSession call
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Session fetch timeout')), 2000)
+        );
+        
+        const { data: { session }, error: sessionError } = await Promise.race([
+          sessionPromise,
+          timeoutPromise
+        ]) as any;
         
         if (sessionError) {
-          console.error('Session error:', sessionError);
+          console.error('[Auth] Session error:', sessionError);
           if (mounted) setIsLoading(false);
           return;
         }
         
         if (mounted && session?.user) {
-          console.log('Session found, fetching user profile...');
-          const { data: profile, error: profileError } = await supabase
+          console.log('[Auth] Session found, fetching user profile...');
+          
+          // Add timeout to profile fetch
+          const profilePromise = supabase
             .from('user_profiles')
             .select('*')
             .eq('id', session.user.id)
             .single();
           
+          const profileTimeoutPromise = new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error('Profile fetch timeout')), 2000)
+          );
+          
+          const { data: profile, error: profileError } = await Promise.race([
+            profilePromise,
+            profileTimeoutPromise
+          ]) as any;
+          
           if (!profileError && profile) {
-            console.log('User profile loaded:', profile.email);
+            const duration = Date.now() - startTime;
+            console.log(`[Auth] User profile loaded in ${duration}ms:`, profile.email);
             setUser(mapSupabaseUser(session.user, profile));
           } else {
-            console.error('Profile fetch error:', profileError);
+            console.error('[Auth] Profile fetch error:', profileError);
             // If profile doesn't exist, sign out
             await supabase.auth.signOut();
           }
         } else {
-          console.log('No active session found');
+          console.log('[Auth] No active session found');
         }
-      } catch (error) {
-        console.error('Auth initialization error:', error);
+      } catch (error: any) {
+        const duration = Date.now() - startTime;
+        console.error(`[Auth] Initialization error after ${duration}ms:`, error.message);
       } finally {
         clearTimeout(timeoutId);
         if (mounted) {
-          console.log('Auth initialization complete');
+          const duration = Date.now() - startTime;
+          console.log(`[Auth] Initialization complete in ${duration}ms`);
           setIsLoading(false);
         }
       }
@@ -91,6 +116,8 @@ export function useAuth() {
       async (event, session) => {
         if (!mounted) return;
         
+        console.log('[Auth] State change:', event);
+        
         if (event === 'SIGNED_IN' && session?.user) {
           try {
             const { data: profile, error: profileError } = await supabase
@@ -102,10 +129,10 @@ export function useAuth() {
             if (!profileError && profile) {
               setUser(mapSupabaseUser(session.user, profile));
             } else {
-              console.error('Profile fetch error on sign in:', profileError);
+              console.error('[Auth] Profile fetch error on sign in:', profileError);
             }
           } catch (error) {
-            console.error('Auth state change error:', error);
+            console.error('[Auth] State change error:', error);
           } finally {
             setIsLoading(false);
           }
@@ -123,7 +150,7 @@ export function useAuth() {
               setUser(mapSupabaseUser(session.user, profile));
             }
           } catch (error) {
-            console.error('Token refresh error:', error);
+            console.error('[Auth] Token refresh error:', error);
           }
         }
       }
