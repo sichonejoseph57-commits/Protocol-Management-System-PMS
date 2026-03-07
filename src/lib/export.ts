@@ -1,3 +1,4 @@
+
 import { Employee, TimeEntry, PayrollSummary } from '@/types';
 import { formatCurrency } from '@/lib/payroll';
 
@@ -47,6 +48,7 @@ export const exportToCSV = (data: any[], filename: string) => {
 
 export const exportEmployees = (
   employees: Employee[],
+  companyName?: string,
   filters?: {
     department?: string;
     position?: string;
@@ -77,7 +79,8 @@ export const exportEmployees = (
 
   // Format for CSV
   const csvData = filteredEmployees.map(emp => ({
-    'Employee ID': emp.id,
+    'Company': companyName || 'N/A',
+    'Employee ID': emp.employeeNumber || emp.id.substring(0, 8),
     'Name': emp.name,
     'Email': emp.email || 'N/A',
     'Phone': emp.phone,
@@ -91,11 +94,12 @@ export const exportEmployees = (
     'Created At': new Date(emp.createdAt).toLocaleString(),
   }));
 
-  exportToCSV(csvData, 'employees');
+  exportToCSV(csvData, `${companyName || 'PMS'}_employees`);
 };
 
 export const exportTimeEntries = (
   timeEntries: TimeEntry[],
+  companyName?: string,
   filters?: {
     employeeName?: string;
     department?: string;
@@ -121,6 +125,7 @@ export const exportTimeEntries = (
 
   // Format for CSV
   const csvData = filteredEntries.map(entry => ({
+    'Company': companyName || 'N/A',
     'Date': entry.date,
     'Employee Name': entry.employeeName,
     'Clock In': entry.clockIn,
@@ -138,11 +143,12 @@ export const exportTimeEntries = (
     'Entered At': new Date(entry.enteredAt).toLocaleString(),
   }));
 
-  exportToCSV(csvData, 'time_entries');
+  exportToCSV(csvData, `${companyName || 'PMS'}_time_entries`);
 };
 
 export const exportPayrollReport = (
   payrollData: PayrollSummary[],
+  companyName?: string,
   filters?: {
     department?: string;
     position?: string;
@@ -161,6 +167,7 @@ export const exportPayrollReport = (
 
   // Format for CSV
   const csvData = filteredData.map(payroll => ({
+    'Company': companyName || 'N/A',
     'Employee Name': payroll.employeeName,
     'Month': payroll.month,
     'Days Worked': payroll.daysWorked,
@@ -169,8 +176,54 @@ export const exportPayrollReport = (
     'Holiday Hours': payroll.holidayHours.toFixed(2),
     'Regular Pay': formatCurrency(payroll.regularPay),
     'Holiday Pay': formatCurrency(payroll.holidayPay),
-    'Total Pay': formatCurrency(payroll.totalPay),
+    'Gross Pay': formatCurrency(payroll.totalPay),
+    'Total Deductions': formatCurrency(payroll.totalDeductions || 0),
+    'Net Pay': formatCurrency(payroll.netPay || payroll.totalPay),
   }));
 
-  exportToCSV(csvData, 'payroll_report');
-};
+  exportToCSV(csvData, `${companyName || 'PMS'}_payroll_report`);
+}; // Removed extra '}' here
+
+/**
+ * Send bulk emails with payslip attachments (requires backend implementation)
+ */
+export async function sendBulkPayslipEmails(
+  payrollData: PayrollSummary[],
+  employees: Employee[],
+  organization: any,
+  supabaseClient: any
+): Promise<{ success: number; failed: number; errors: string[] }> {
+  let success = 0;
+  let failed = 0;
+  const errors: string[] = [];
+  
+  for (const payroll of payrollData) {
+    const employee = employees.find(e => e.id === payroll.employeeId);
+    
+    if (!employee?.email) {
+      errors.push(`${payroll.employeeName}: No email address`);
+      failed++;
+      continue;
+    }
+    
+    try {
+      // Call edge function to send email
+      const { error } = await supabaseClient.functions.invoke('send-payslip-email', {
+        body: {
+          employee_email: employee.email,
+          employee_name: employee.name,
+          company_name: organization.companyName,
+          payroll_data: payroll,
+        },
+      });
+      
+      if (error) throw error;
+      success++;
+    } catch (error: any) {
+      errors.push(`${payroll.employeeName}: ${error.message}`);
+      failed++;
+    }
+  }
+  
+  return { success, failed, errors };
+}

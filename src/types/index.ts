@@ -42,7 +42,7 @@ export interface UserProfile {
   organizationId: string;
   username: string;
   email: string;
-  role: 'super_admin' | 'admin' | 'pending';
+  role: 'super_admin' | 'admin' | 'hr' | 'pending';
   is_active: boolean;
   created_at: string;
 }
@@ -71,6 +71,9 @@ export interface PayrollSummary {
   holidayPay: number;
   totalPay: number;
   daysWorked: number;
+  deductions?: Deduction[];
+  totalDeductions?: number;
+  netPay?: number;
 }
 
 export interface Organization {
@@ -117,5 +120,57 @@ export interface Payment {
   status: 'pending' | 'completed' | 'failed' | 'refunded';
   metadata: any;
   paidAt: string | null;
+  createdAt: string;
+}
+
+export interface Deduction {
+  id: string;
+  organizationId: string;
+  name: string;
+  type: 'custom' | 'paye' | 'napsa' | 'other';
+  isPercentage: boolean;
+  amount: number;
+  description?: string;
+  isActive: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface EmployeeDeduction {
+  id: string;
+  employeeId: string;
+  deductionId: string;
+  amountOverride?: number;
+  appliedFrom: string;
+  appliedUntil?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  organizationId: string;
+  userId: string | null;
+  userName: string;
+  action: string;
+  entityType: string;
+  entityId?: string;
+  entityName?: string;
+  details?: any;
+  ipAddress?: string;
+  createdAt: string;
+}
+
+export interface Message {
+  id: string;
+  fromUserId: string;
+  fromUserName: string;
+  toUserId: string;
+  toUserName: string;
+  organizationId?: string;
+  subject: string;
+  message: string;
+  isRead: boolean;
+  parentId?: string;
   createdAt: string;
 }

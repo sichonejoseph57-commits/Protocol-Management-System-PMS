@@ -7,7 +7,7 @@ export interface AuthUser {
   email: string;
   username: string;
   organizationId: string;
-  role: 'super_admin' | 'admin' | 'pending';
+  role: 'super_admin' | 'admin' | 'hr' | 'pending';
   is_active: boolean;
 }
 

@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { AlertCircle, Calendar } from 'lucide-react';
+import { AlertCircle, Calendar, Filter } from 'lucide-react';
 import { getCurrentDate } from '@/lib/utils';
 import { isZambianHoliday } from '@/constants/holidays';
 import { AuthUser } from '@/hooks/useAuth';
@@ -34,6 +35,9 @@ export default function BulkTimeEntryForm({
   onCancel,
 }: BulkTimeEntryFormProps) {
   const [date, setDate] = useState(getCurrentDate());
+  const [filterDepartment, setFilterDepartment] = useState<string>('all');
+  const [filterPosition, setFilterPosition] = useState<string>('all');
+  const [searchName, setSearchName] = useState('');
   const [employeeData, setEmployeeData] = useState<Record<string, EmployeeTimeData>>(
     employees.reduce((acc, emp) => ({
       ...acc,
@@ -49,12 +53,25 @@ export default function BulkTimeEntryForm({
   );
 
   const holiday = isZambianHoliday(date);
-  const activeEmployees = employees.filter(e => e.status === 'active');
+  
+  // Get unique departments and positions
+  const departments = Array.from(new Set(employees.map(e => e.department)));
+  const positions = Array.from(new Set(employees.map(e => e.position)));
+  
+  // Filter employees
+  const filteredEmployees = employees.filter(emp => {
+    if (emp.status !== 'active') return false;
+    if (filterDepartment !== 'all' && emp.department !== filterDepartment) return false;
+    if (filterPosition !== 'all' && emp.position !== filterPosition) return false;
+    if (searchName && !emp.name.toLowerCase().includes(searchName.toLowerCase())) return false;
+    return true;
+  });
 
   const handleSelectAll = (checked: boolean) => {
     const updated = { ...employeeData };
-    Object.keys(updated).forEach(key => {
-      updated[key].selected = checked;
+    // Only update filtered employees
+    filteredEmployees.forEach(emp => {
+      updated[emp.id].selected = checked;
     });
     setEmployeeData(updated);
   };
@@ -98,6 +115,7 @@ export default function BulkTimeEntryForm({
   };
 
   const selectedCount = Object.values(employeeData).filter(d => d.selected).length;
+  const filteredSelectedCount = filteredEmployees.filter(e => employeeData[e.id].selected).length;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -135,20 +153,67 @@ export default function BulkTimeEntryForm({
       </div>
 
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Label>Select Employees ({selectedCount} selected)</Label>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <Label className="flex items-center gap-2">
+            <Filter className="w-4 h-4" />
+            Filter & Select Employees ({selectedCount} selected)
+          </Label>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => handleSelectAll(selectedCount !== activeEmployees.length)}
+            onClick={() => handleSelectAll(filteredSelectedCount !== filteredEmployees.length)}
           >
-            {selectedCount === activeEmployees.length ? 'Deselect All' : 'Select All Active'}
+            {filteredSelectedCount === filteredEmployees.length ? 'Deselect All' : 'Select All Filtered'}
           </Button>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <Label className="text-xs mb-1">Search by Name</Label>
+            <Input
+              placeholder="Enter employee name..."
+              value={searchName}
+              onChange={(e) => setSearchName(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs mb-1">Department</Label>
+            <Select value={filterDepartment} onValueChange={setFilterDepartment}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Departments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                {departments.map(dept => (
+                  <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs mb-1">Position</Label>
+            <Select value={filterPosition} onValueChange={setFilterPosition}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Positions" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Positions</SelectItem>
+                {positions.map(pos => (
+                  <SelectItem key={pos} value={pos}>{pos}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="border rounded-lg divide-y max-h-96 overflow-y-auto">
-          {activeEmployees.map((employee) => {
+          {filteredEmployees.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              No employees found matching the filters
+            </div>
+          ) : (
+            filteredEmployees.map((employee) => {
             const data = employeeData[employee.id];
             return (
               <div key={employee.id} className="p-4 hover:bg-gray-50">

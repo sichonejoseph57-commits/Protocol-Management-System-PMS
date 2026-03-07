@@ -1,4 +1,6 @@
+
 import { supabase } from './supabase';
+import { generateUniqueSubdomain } from './subdomain';
 
 export async function uploadEmployeePhoto(file: File, employeeId: string): Promise<string> {
   // Validate file type (security requirement: only images)
@@ -114,7 +116,44 @@ export async function activateOrganization(organizationId: string) {
   });
 }
 
-export async function getAllOrganizations() {
+export async function createOrganization(
+  companyName: string,
+  contactEmail: string,
+  contactPhone?: string,
+  logoFile?: File
+): Promise<string> {
+  // Auto-generate unique subdomain from company name
+  const subdomain = await generateUniqueSubdomain(companyName, supabase);
+  
+  const { data, error } = await supabase
+    .from('organizations')
+    .insert({
+      company_name: companyName,
+      subdomain,
+      contact_email: contactEmail,
+      contact_phone: contactPhone || null,
+      subscription_status: 'trial',
+      trial_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days trial
+    })
+    .select()
+    .single();
+  
+  if (error) throw new Error(`Failed to create organization: ${error.message}`);
+  
+  // Upload logo if provided
+  if (logoFile && data.id) {
+    try {
+      await uploadOrganizationLogo(logoFile, data.id);
+    } catch (logoError: any) {
+      console.error('Logo upload failed:', logoError);
+      // Don't fail the entire operation if logo upload fails
+    }
+  }
+  
+  return data.id;
+}
+
+export async function getOrganizations() { // Added this function to enclose the orphaned code block
   const { data, error } = await supabase
     .from('organizations')
     .select('*')
