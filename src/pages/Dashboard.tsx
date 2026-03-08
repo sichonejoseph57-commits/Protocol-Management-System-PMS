@@ -58,22 +58,16 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
   const [showEmployeeDialog, setShowEmployeeDialog] = useState(false);
   const [showBulkTimeDialog, setShowBulkTimeDialog] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | undefined>();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Start with false for immediate render
   const { toast } = useToast();
 
   useEffect(() => {
-    // Progressive loading: Load critical data first, then setup real-time
-    const initDashboard = async () => {
-      await loadData();
-      // Setup subscriptions after initial data load
-      const cleanup = setupRealtimeSubscriptions();
-      return cleanup;
-    };
-    
-    const cleanup = initDashboard();
-    return () => {
-      cleanup.then(fn => fn?.());
-    };
+    // IMMEDIATE RENDER: Load data in background without blocking UI
+    console.log('[Dashboard] Mounting - will load data in background');
+    loadData().catch(err => {
+      console.error('[Dashboard] Background load failed:', err);
+    });
+    // No cleanup needed - real-time disabled
   }, [viewAsClientMode]);
 
   // Reset to employees tab when entering view-as-client mode
@@ -87,8 +81,12 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
     const loadStartTime = Date.now();
     console.log('[Dashboard] Starting data load...', { forceRefresh });
     
-    try {
+    // Only show loading indicator on manual refresh
+    if (forceRefresh) {
       setIsLoading(true);
+    }
+    
+    try {
       
       // Clear cache on force refresh
       if (forceRefresh) {
@@ -100,12 +98,12 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
       const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
         .toISOString().split('T')[0];
       
-      // Reduced timeout to 5 seconds for faster failure detection
+      // Ultra-fast 3 second timeout
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => {
-          console.error('[Dashboard] Data load timeout after 5 seconds');
-          reject(new Error('Loading timeout - please check your connection'));
-        }, 5000)
+          console.error('[Dashboard] Timeout after 3s');
+          reject(new Error('Loading timeout'));
+        }, 3000)
       );
       
       // PARALLEL LOADING: All queries run simultaneously

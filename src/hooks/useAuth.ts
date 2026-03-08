@@ -34,14 +34,14 @@ export function useAuth() {
     let mounted = true;
     let timeoutId: NodeJS.Timeout;
 
-    // CRITICAL FIX: 5 second timeout to prevent infinite loading
+    // EMERGENCY FIX: 2 second timeout for ultra-fast failure detection
     timeoutId = setTimeout(() => {
       if (mounted && isLoading) {
-        console.error('[Auth] ⚠️ TIMEOUT: Auth initialization failed after 5s');
-        console.error('[Auth] Forcing loading state to false - check console for errors');
-        setIsLoading(false);
+        console.error('[Auth] ⚠️ TIMEOUT: Auth initialization exceeded 2s');
+        console.error('[Auth] Setting loading=false immediately');
+        if (mounted) setIsLoading(false);
       }
-    }, 5000);
+    }, 2000);
 
     // Check existing session and fetch user profile
     const loadUser = async () => {
@@ -49,10 +49,10 @@ export function useAuth() {
       try {
         console.log('[Auth] Starting initialization...');
         
-        // Add timeout to getSession call
+        // Quick session check with 1s timeout
         const sessionPromise = supabase.auth.getSession();
         const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Session fetch timeout')), 2000)
+          setTimeout(() => reject(new Error('Session timeout')), 1000)
         );
         
         const { data: { session }, error: sessionError } = await Promise.race([
@@ -70,7 +70,7 @@ export function useAuth() {
           console.log('[Auth] ✅ Session found, fetching user profile...');
           
           try {
-            // Fetch profile with timeout
+            // Fetch profile with 1s timeout
             const profilePromise = supabase
               .from('user_profiles')
               .select('*')
@@ -78,7 +78,7 @@ export function useAuth() {
               .single();
             
             const profileTimeoutPromise = new Promise<never>((_, reject) => 
-              setTimeout(() => reject(new Error('Profile fetch timeout')), 3000)
+              setTimeout(() => reject(new Error('Profile timeout')), 1000)
             );
             
             const { data: profile, error: profileError } = await Promise.race([
