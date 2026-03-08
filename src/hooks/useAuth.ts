@@ -34,13 +34,14 @@ export function useAuth() {
     let mounted = true;
     let timeoutId: NodeJS.Timeout;
 
-    // Reduced timeout to 3 seconds for faster failure detection
+    // CRITICAL FIX: 5 second timeout to prevent infinite loading
     timeoutId = setTimeout(() => {
-      if (mounted) {
-        console.warn('[Auth] Initialization timeout after 3s - clearing loading state');
+      if (mounted && isLoading) {
+        console.error('[Auth] ⚠️ TIMEOUT: Auth initialization failed after 5s');
+        console.error('[Auth] Forcing loading state to false - check console for errors');
         setIsLoading(false);
       }
-    }, 3000);
+    }, 5000);
 
     // Check existing session and fetch user profile
     const loadUser = async () => {
@@ -66,35 +67,42 @@ export function useAuth() {
         }
         
         if (mounted && session?.user) {
-          console.log('[Auth] Session found, fetching user profile...');
+          console.log('[Auth] ✅ Session found, fetching user profile...');
           
-          // Add timeout to profile fetch
-          const profilePromise = supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-          
-          const profileTimeoutPromise = new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error('Profile fetch timeout')), 2000)
-          );
-          
-          const { data: profile, error: profileError } = await Promise.race([
-            profilePromise,
-            profileTimeoutPromise
-          ]) as any;
-          
-          if (!profileError && profile) {
-            const duration = Date.now() - startTime;
-            console.log(`[Auth] User profile loaded in ${duration}ms:`, profile.email);
-            setUser(mapSupabaseUser(session.user, profile));
-          } else {
-            console.error('[Auth] Profile fetch error:', profileError);
-            // If profile doesn't exist, sign out
+          try {
+            // Fetch profile with timeout
+            const profilePromise = supabase
+              .from('user_profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single();
+            
+            const profileTimeoutPromise = new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error('Profile fetch timeout')), 3000)
+            );
+            
+            const { data: profile, error: profileError } = await Promise.race([
+              profilePromise,
+              profileTimeoutPromise
+            ]) as any;
+            
+            if (!profileError && profile) {
+              const duration = Date.now() - startTime;
+              console.log(`[Auth] ✅ User profile loaded in ${duration}ms:`, profile.email, profile.role);
+              const authUser = mapSupabaseUser(session.user, profile);
+              console.log('[Auth] 🔐 User authenticated:', authUser.email, 'Role:', authUser.role, 'Org:', authUser.organizationId);
+              setUser(authUser);
+            } else {
+              console.error('[Auth] ❌ Profile fetch error:', profileError);
+              console.error('[Auth] Signing out due to missing profile...');
+              await supabase.auth.signOut();
+            }
+          } catch (profileError: any) {
+            console.error('[Auth] ❌ Exception fetching profile:', profileError.message);
             await supabase.auth.signOut();
           }
         } else {
-          console.log('[Auth] No active session found');
+          console.log('[Auth] ℹ️ No active session found');
         }
       } catch (error: any) {
         const duration = Date.now() - startTime;

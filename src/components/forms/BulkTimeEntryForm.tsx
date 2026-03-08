@@ -7,7 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { AlertCircle, Calendar, Filter } from 'lucide-react';
+import { AlertCircle, Calendar, Filter, Clock } from 'lucide-react';
 import { getCurrentDate } from '@/lib/utils';
 import { isZambianHoliday } from '@/constants/holidays';
 import { AuthUser } from '@/hooks/useAuth';
@@ -17,15 +17,6 @@ interface BulkTimeEntryFormProps {
   adminUser: AuthUser;
   onSubmit: (entries: Partial<TimeEntry>[]) => void;
   onCancel: () => void;
-}
-
-interface EmployeeTimeData {
-  employeeId: string;
-  selected: boolean;
-  clockIn: string;
-  clockOut: string;
-  breakMinutes: number;
-  notes: string;
 }
 
 export default function BulkTimeEntryForm({
@@ -38,19 +29,13 @@ export default function BulkTimeEntryForm({
   const [filterDepartment, setFilterDepartment] = useState<string>('all');
   const [filterPosition, setFilterPosition] = useState<string>('all');
   const [searchName, setSearchName] = useState('');
-  const [employeeData, setEmployeeData] = useState<Record<string, EmployeeTimeData>>(
-    employees.reduce((acc, emp) => ({
-      ...acc,
-      [emp.id]: {
-        employeeId: emp.id,
-        selected: false,
-        clockIn: '08:00',
-        clockOut: '17:00',
-        breakMinutes: 60, // Default 1 hour break
-        notes: '',
-      },
-    }), {})
-  );
+  const [selectedEmployees, setSelectedEmployees] = useState<Set<string>>(new Set());
+  
+  // SINGLE TIME ENTRY FOR ALL EMPLOYEES
+  const [clockIn, setClockIn] = useState('08:00');
+  const [clockOut, setClockOut] = useState('17:00');
+  const [breakMinutes, setBreakMinutes] = useState(60); // Default 1 hour break
+  const [notes, setNotes] = useState('');
 
   const holiday = isZambianHoliday(date);
   
@@ -67,104 +52,153 @@ export default function BulkTimeEntryForm({
     return true;
   });
 
-  const handleSelectAll = (checked: boolean) => {
-    const updated = { ...employeeData };
-    // Only update filtered employees
-    filteredEmployees.forEach(emp => {
-      updated[emp.id].selected = checked;
-    });
-    setEmployeeData(updated);
+  const handleSelectAll = () => {
+    if (selectedEmployees.size === filteredEmployees.length) {
+      setSelectedEmployees(new Set());
+    } else {
+      setSelectedEmployees(new Set(filteredEmployees.map(e => e.id)));
+    }
   };
 
-  const handleEmployeeChange = (
-    employeeId: string,
-    field: keyof EmployeeTimeData,
-    value: string | boolean | number
-  ) => {
-    setEmployeeData({
-      ...employeeData,
-      [employeeId]: {
-        ...employeeData[employeeId],
-        [field]: value,
-      },
-    });
+  const toggleEmployee = (employeeId: string) => {
+    const newSelected = new Set(selectedEmployees);
+    if (newSelected.has(employeeId)) {
+      newSelected.delete(employeeId);
+    } else {
+      newSelected.add(employeeId);
+    }
+    setSelectedEmployees(newSelected);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    const entries: Partial<TimeEntry>[] = Object.values(employeeData)
-      .filter(data => data.selected)
-      .map(data => {
-        const employee = employees.find(e => e.id === data.employeeId)!;
-        return {
-          employeeId: data.employeeId,
-          employeeName: employee.name,
-          date,
-          clockIn: data.clockIn,
-          clockOut: data.clockOut,
-          breakMinutes: data.breakMinutes,
-          status: employee.status,
-          notes: data.notes,
-        };
-      });
-
-    if (entries.length > 0) {
-      onSubmit(entries);
+    if (selectedEmployees.size === 0) {
+      return;
     }
-  };
 
-  const selectedCount = Object.values(employeeData).filter(d => d.selected).length;
-  const filteredSelectedCount = filteredEmployees.filter(e => employeeData[e.id].selected).length;
+    // Create time entries for ALL selected employees with the SAME time
+    const entries: Partial<TimeEntry>[] = Array.from(selectedEmployees).map(employeeId => {
+      const employee = employees.find(e => e.id === employeeId)!;
+      return {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        date,
+        clockIn,
+        clockOut,
+        breakMinutes,
+        status: employee.status,
+        notes,
+      };
+    });
+
+    onSubmit(entries);
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="date">Date *</Label>
-          <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+      {/* Date Selection */}
+      <div className="space-y-2">
+        <Label htmlFor="date">Date *</Label>
+        <div className="relative">
+          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <Input
+            id="date"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="pl-10"
+            required
+          />
+        </div>
+      </div>
+
+      {holiday && (
+        <Card className="p-4 bg-amber-50 border-amber-200">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+            <div>
+              <p className="font-medium text-amber-900">{holiday.name}</p>
+              <p className="text-sm text-amber-700">
+                Holiday overtime will be applied at 2x standard rate
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* SINGLE TIME ENTRY BOX - Applied to ALL selected employees */}
+      <Card className="p-4 bg-blue-50 border-blue-200">
+        <div className="flex items-center gap-2 mb-4">
+          <Clock className="w-5 h-5 text-blue-600" />
+          <h3 className="font-semibold text-blue-900">
+            Time Entry (will apply to all selected employees)
+          </h3>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="clockIn">Clock In *</Label>
             <Input
-              id="date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="pl-10"
+              id="clockIn"
+              type="time"
+              value={clockIn}
+              onChange={(e) => setClockIn(e.target.value)}
               required
             />
           </div>
-        </div>
-
-        {holiday && (
-          <div className="md:col-span-2">
-            <Card className="p-4 bg-amber-50 border-amber-200">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
-                <div>
-                  <p className="font-medium text-amber-900">{holiday.name}</p>
-                  <p className="text-sm text-amber-700">
-                    Holiday overtime will be applied at 2x standard rate
-                  </p>
-                </div>
-              </div>
-            </Card>
+          
+          <div className="space-y-2">
+            <Label htmlFor="clockOut">Clock Out *</Label>
+            <Input
+              id="clockOut"
+              type="time"
+              value={clockOut}
+              onChange={(e) => setClockOut(e.target.value)}
+              required
+            />
           </div>
-        )}
-      </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="breakMinutes">Break (minutes) *</Label>
+            <Input
+              id="breakMinutes"
+              type="number"
+              min="0"
+              step="15"
+              value={breakMinutes}
+              onChange={(e) => setBreakMinutes(parseInt(e.target.value) || 0)}
+              required
+            />
+          </div>
+          
+          <div className="md:col-span-3 space-y-2">
+            <Label htmlFor="notes">Notes (Optional)</Label>
+            <Textarea
+              id="notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Add notes that will apply to all selected employees..."
+              rows={2}
+            />
+          </div>
+        </div>
+      </Card>
 
+      {/* Employee Selection */}
       <div className="space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <Label className="flex items-center gap-2">
             <Filter className="w-4 h-4" />
-            Filter & Select Employees ({selectedCount} selected)
+            Select Employees ({selectedEmployees.size} selected)
           </Label>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => handleSelectAll(filteredSelectedCount !== filteredEmployees.length)}
+            onClick={handleSelectAll}
           >
-            {filteredSelectedCount === filteredEmployees.length ? 'Deselect All' : 'Select All Filtered'}
+            {selectedEmployees.size === filteredEmployees.length ? 'Deselect All' : 'Select All Filtered'}
           </Button>
         </div>
         
@@ -213,92 +247,40 @@ export default function BulkTimeEntryForm({
               No employees found matching the filters
             </div>
           ) : (
-            filteredEmployees.map((employee) => {
-              const data = employeeData[employee.id];
-              return (
-                <div key={employee.id} className="p-4 hover:bg-gray-50">
-                  <div className="flex items-start gap-4">
-                    <Checkbox
-                      checked={data.selected}
-                      onCheckedChange={(checked) =>
-                        handleEmployeeChange(employee.id, 'selected', checked as boolean)
-                      }
-                      className="mt-1"
-                    />
-                    
-                    <div className="flex-1 space-y-3">
-                      <div>
-                        <p className="font-medium text-gray-900">{employee.name}</p>
-                        <p className="text-sm text-gray-600">
-                          {employee.position} - {employee.department}
-                        </p>
-                      </div>
-
-                      {data.selected && (
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Clock In</Label>
-                            <Input
-                              type="time"
-                              value={data.clockIn}
-                              onChange={(e) =>
-                                handleEmployeeChange(employee.id, 'clockIn', e.target.value)
-                              }
-                              required
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Clock Out</Label>
-                            <Input
-                              type="time"
-                              value={data.clockOut}
-                              onChange={(e) =>
-                                handleEmployeeChange(employee.id, 'clockOut', e.target.value)
-                              }
-                              required
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Break (min)</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="15"
-                              value={data.breakMinutes}
-                              onChange={(e) =>
-                                handleEmployeeChange(employee.id, 'breakMinutes', parseInt(e.target.value) || 0)
-                              }
-                              required
-                            />
-                          </div>
-                          <div className="col-span-3 space-y-1">
-                            <Label className="text-xs">Notes (Optional)</Label>
-                            <Textarea
-                              value={data.notes}
-                              onChange={(e) =>
-                                handleEmployeeChange(employee.id, 'notes', e.target.value)
-                              }
-                              placeholder="Add any notes..."
-                              rows={2}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+            filteredEmployees.map((employee) => (
+              <div
+                key={employee.id}
+                className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 ${
+                  selectedEmployees.has(employee.id) ? 'bg-blue-50' : ''
+                }`}
+                onClick={() => toggleEmployee(employee.id)}
+              >
+                <Checkbox
+                  checked={selectedEmployees.has(employee.id)}
+                  onCheckedChange={() => toggleEmployee(employee.id)}
+                />
+                <div className="flex-1">
+                  <p className="font-medium text-gray-900">{employee.name}</p>
+                  <p className="text-sm text-gray-600">
+                    {employee.position} - {employee.department}
+                  </p>
                 </div>
-              );
-            })
+              </div>
+            ))
           )}
         </div>
+        
+        <p className="text-sm text-gray-500 text-center">
+          The time entry above will be applied to all {selectedEmployees.size} selected employee{selectedEmployees.size !== 1 ? 's' : ''}
+        </p>
       </div>
 
       <div className="flex gap-3 justify-end pt-4 border-t">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" disabled={selectedCount === 0}>
-          Save {selectedCount} Time {selectedCount === 1 ? 'Entry' : 'Entries'}
+        <Button type="submit" disabled={selectedEmployees.size === 0}>
+          Save Time for {selectedEmployees.size} Employee{selectedEmployees.size !== 1 ? 's' : ''}
         </Button>
       </div>
     </form>
