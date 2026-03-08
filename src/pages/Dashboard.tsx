@@ -20,7 +20,7 @@ import DeductionManagement from '@/components/features/DeductionManagement';
 import ActivityLogs from '@/components/features/ActivityLogs';
 import MessagingCenter from '@/components/features/MessagingCenter';
 import { Employee, TimeEntry } from '@/types';
-import { getEmployees, saveEmployee, deleteEmployee, getTimeEntries, saveTimeEntries } from '@/lib/database';
+import { getEmployees, saveEmployee, deleteEmployee, getTimeEntries, saveTimeEntries, clearCache } from '@/lib/database';
 import { calculateTimeEntryPay, formatCurrency } from '@/lib/payroll';
 import { getCurrentDate } from '@/lib/utils';
 import { AuthUser } from '@/hooks/useAuth';
@@ -83,34 +83,42 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
     }
   }, [isViewingAsClient]);
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh = false) => {
     const loadStartTime = Date.now();
-    console.log('[Dashboard] Starting data load...');
+    console.log('[Dashboard] Starting data load...', { forceRefresh });
     
     try {
       setIsLoading(true);
       
-      // Performance optimization: Load only recent data (7 days) for instant initial load
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      // Clear cache on force refresh
+      if (forceRefresh) {
+        clearCache();
+        console.log('[Dashboard] Cache cleared for force refresh');
+      }
+      
+      // ULTRA-FAST: Load only last 3 days by default
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
         .toISOString().split('T')[0];
       
-      // Reduced timeout to 8 seconds for faster failure detection
+      // Reduced timeout to 5 seconds for faster failure detection
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => {
-          console.error('[Dashboard] Data load timeout after 8 seconds');
-          reject(new Error('Data loading timeout. Please check your connection and try refreshing.'));
-        }, 8000)
+          console.error('[Dashboard] Data load timeout after 5 seconds');
+          reject(new Error('Loading timeout - please check your connection'));
+        }, 5000)
       );
       
-      // Progressive loading: Load critical data with optimized queries
+      // PARALLEL LOADING: All queries run simultaneously
       const dataPromise = Promise.all([
         getEmployees(adminUser.organizationId, {
-          status: 'active', // Only active employees initially
-          limit: 100 // Reasonable limit
+          status: 'active',
+          limit: 50, // Reduced to 50 for speed
+          skipCache: forceRefresh
         }),
         getTimeEntries(adminUser.organizationId, { 
-          startDate: sevenDaysAgo,
-          limit: 200 // Last 7 days only for instant load
+          startDate: threeDaysAgo,
+          limit: 100, // Reduced to 100 for speed
+          skipCache: forceRefresh
         }),
         getSystemSettings(),
       ]);
@@ -122,7 +130,7 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
       
       const loadDuration = Date.now() - loadStartTime;
       console.log(
-        `[Dashboard] Load complete in ${loadDuration}ms:`,
+        `[Dashboard] ✅ Load complete in ${loadDuration}ms:`,
         `${employeesData.length} employees,`,
         `${entriesData.length} time entries`
       );
@@ -131,30 +139,31 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
       setTimeEntries(entriesData);
       setSystemSettings(settings);
       
-      // Show success notification for slow loads
-      if (loadDuration > 3000) {
+      // Success notification
+      if (loadDuration < 1000) {
+        console.log('[Dashboard] ⚡ Ultra-fast load!');
+      } else if (loadDuration > 2000) {
         toast({
           title: 'Dashboard loaded',
-          description: `Data loaded in ${(loadDuration / 1000).toFixed(1)}s. Consider filtering for faster performance.`,
+          description: `Loaded in ${(loadDuration / 1000).toFixed(1)}s. Showing last 3 days.`,
         });
       }
     } catch (error: any) {
       const loadDuration = Date.now() - loadStartTime;
-      console.error(`[Dashboard] Load error after ${loadDuration}ms:`, error);
+      console.error(`[Dashboard] ❌ Load error after ${loadDuration}ms:`, error);
       
-      // Provide actionable error messages
-      let errorMessage = error.message || 'Failed to load dashboard data.';
-      let errorTitle = 'Error loading data';
+      let errorMessage = 'Failed to load data';
+      let errorTitle = 'Loading Error';
       
       if (error.message?.includes('timeout')) {
-        errorTitle = 'Connection Timeout';
-        errorMessage = 'The server is taking too long to respond. Please check your internet connection and try again.';
-      } else if (error.message?.includes('network')) {
+        errorTitle = 'Timeout';
+        errorMessage = 'Server not responding. Check your connection and try again.';
+      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
         errorTitle = 'Network Error';
-        errorMessage = 'Unable to connect to the server. Please check your internet connection.';
-      } else if (error.message?.includes('permission')) {
+        errorMessage = 'Cannot connect to server. Check your internet.';
+      } else if (error.message?.includes('permission') || error.message?.includes('policy')) {
         errorTitle = 'Access Denied';
-        errorMessage = 'You do not have permission to view this data. Please contact your administrator.';
+        errorMessage = 'No permission to view this data. Contact admin.';
       }
       
       toast({
@@ -163,7 +172,6 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
         variant: 'destructive',
       });
       
-      // Set empty data to allow UI to render
       setEmployees([]);
       setTimeEntries([]);
     } finally {
@@ -172,6 +180,12 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
   };
 
   const setupRealtimeSubscriptions = () => {
+    // DISABLED: Real-time subscriptions can cause performance issues
+    // Users can manually refresh to see new data
+    console.log('[Dashboard] Real-time subscriptions disabled for performance');
+    return () => {};
+    
+    /* DISABLED FOR PERFORMANCE
     // Performance optimization: Incremental updates instead of full reload
     const employeesChannel = supabase
       .channel('employees-channel')
@@ -272,6 +286,7 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
       employeesChannel.unsubscribe();
       timeEntriesChannel.unsubscribe();
     };
+    */
   };
 
   const handleSaveEmployee = async (employeeData: Partial<Employee>) => {
@@ -467,13 +482,13 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex gap-3 mb-6 flex-wrap">
           <Button
-            onClick={loadData}
+            onClick={() => loadData(true)}
             variant="outline"
             className="gap-2"
             disabled={isLoading}
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
+            {isLoading ? 'Loading...' : 'Refresh'}
           </Button>
           <Button
             onClick={() => {
