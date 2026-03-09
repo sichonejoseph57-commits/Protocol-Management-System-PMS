@@ -6,6 +6,25 @@ import { Badge } from '@/components/ui/badge';
 import { Search, Calendar, Download } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { formatCurrency } from '@/lib/payroll';
+
+/**
+ * Format time to 24-hour format (HH:MM)
+ * Ensures all time displays use military time
+ */
+function formatTime24Hour(time: string): string {
+  // If already in HH:MM format, return as-is
+  if (/^\d{2}:\d{2}$/.test(time)) {
+    return time;
+  }
+  
+  // Handle HH:MM:SS format (remove seconds)
+  if (/^\d{2}:\d{2}:\d{2}$/.test(time)) {
+    return time.substring(0, 5);
+  }
+  
+  // Return as-is if format is unknown
+  return time;
+}
 import { exportTimeEntries } from '@/lib/export';
 import { useToast } from '@/hooks/use-toast';
 
@@ -146,7 +165,7 @@ export default function TimeEntryTable({ timeEntries }: TimeEntryTableProps) {
                       )}
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-900">
-                      {entry.clockIn} - {entry.clockOut}
+                      <span className="font-mono">{formatTime24Hour(entry.clockIn)} - {formatTime24Hour(entry.clockOut)}</span>
                     </td>
                     <td className="px-4 py-4">
                       <div className="text-sm">

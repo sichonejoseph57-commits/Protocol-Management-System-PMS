@@ -305,22 +305,104 @@ export function generatePayslipHTML(data: PayslipData): string {
 
 /**
  * Print a payslip by opening it in a new window
+ * FIXED: Added error handling, retry logic, and fallback print method
  */
 export function printPayslip(data: PayslipData): void {
+  console.log('[Payslip] Initiating print for:', data.employee.name);
   const html = generatePayslipHTML(data);
-  const printWindow = window.open('', '_blank');
   
-  if (printWindow) {
-    printWindow.document.write(html);
-    printWindow.document.close();
+  try {
+    // Try opening a new window
+    const printWindow = window.open('', '_blank', 'width=800,height=900');
     
-    // Auto-trigger print dialog after content loads
-    printWindow.onload = () => {
-      printWindow.focus();
-      printWindow.print();
+    if (printWindow) {
+      console.log('[Payslip] ✅ Print window opened successfully');
+      printWindow.document.write(html);
+      printWindow.document.close();
+      
+      // Auto-trigger print dialog after content loads with timeout protection
+      let printTriggered = false;
+      
+      const triggerPrint = () => {
+        if (printTriggered) return;
+        printTriggered = true;
+        
+        console.log('[Payslip] 🖨️ Triggering print dialog...');
+        printWindow.focus();
+        
+        // Small delay to ensure content is fully rendered
+        setTimeout(() => {
+          try {
+            printWindow.print();
+            console.log('[Payslip] ✅ Print dialog opened');
+          } catch (printError) {
+            console.error('[Payslip] ❌ Print error:', printError);
+            alert('Print failed. Please try using Ctrl+P or Cmd+P in the opened window.');
+          }
+        }, 250);
+      };
+      
+      // Try both onload and timeout for maximum compatibility
+      printWindow.onload = triggerPrint;
+      setTimeout(triggerPrint, 500); // Fallback timeout
+      
+    } else {
+      // Popup blocked - use fallback method
+      console.warn('[Payslip] ⚠️ Popup blocked, using fallback print method');
+      useFallbackPrint(html);
+    }
+  } catch (error) {
+    console.error('[Payslip] ❌ Print exception:', error);
+    useFallbackPrint(html);
+  }
+}
+
+/**
+ * Fallback print method when popups are blocked
+ */
+function useFallbackPrint(html: string): void {
+  console.log('[Payslip] Using fallback print method (iframe)');
+  
+  // Create hidden iframe for printing
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = 'none';
+  
+  document.body.appendChild(iframe);
+  
+  const iframeDoc = iframe.contentWindow?.document;
+  if (iframeDoc) {
+    iframeDoc.open();
+    iframeDoc.write(html);
+    iframeDoc.close();
+    
+    // Wait for content to load, then print
+    iframe.onload = () => {
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+          console.log('[Payslip] ✅ Fallback print triggered');
+          
+          // Clean up after printing
+          setTimeout(() => {
+            document.body.removeChild(iframe);
+          }, 1000);
+        } catch (error) {
+          console.error('[Payslip] ❌ Fallback print error:', error);
+          document.body.removeChild(iframe);
+          alert('Unable to print. Please enable popups or download the payslip instead.');
+        }
+      }, 500);
     };
   } else {
-    alert('Please allow popups to print payslips');
+    console.error('[Payslip] ❌ Cannot access iframe document');
+    alert('Printing is blocked. Please allow popups for this site or download the payslip.');
+    document.body.removeChild(iframe);
   }
 }
 

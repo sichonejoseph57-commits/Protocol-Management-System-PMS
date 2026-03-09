@@ -172,9 +172,10 @@ export function useAuth() {
   }, []);
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const loginStartTime = Date.now();
     try {
       setIsLoading(true);
-      console.log('[Auth] Login attempt for:', email);
+      console.log('[Auth] 🔐 Login attempt for:', email);
       
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -182,13 +183,13 @@ export function useAuth() {
       });
       
       if (error) {
-        console.error('[Auth] Login error:', error.message);
+        console.error('[Auth] ❌ Login error:', error.message);
         setIsLoading(false);
         return { success: false, error: error.message };
       }
       
       if (data.user) {
-        console.log('[Auth] Login successful, fetching profile...');
+        console.log('[Auth] ✅ Login successful, fetching profile...');
         const { data: profile, error: profileError } = await supabase
           .from('user_profiles')
           .select('*')
@@ -196,33 +197,43 @@ export function useAuth() {
           .single();
         
         if (profileError || !profile) {
-          console.error('[Auth] Profile fetch error:', profileError);
+          console.error('[Auth] ❌ Profile fetch error:', profileError);
           setIsLoading(false);
           return { success: false, error: 'User profile not found. Please contact support.' };
         }
         
-        console.log('[Auth] Profile loaded, setting user state...');
+        const loginDuration = Date.now() - loginStartTime;
+        console.log(`[Auth] ✅ Profile loaded in ${loginDuration}ms, setting user state...`);
         const authUser = mapSupabaseUser(data.user, profile);
+        
+        // CRITICAL FIX: Set user first, THEN clear loading to prevent bounce-back
         setUser(authUser);
-        setIsLoading(false); // CRITICAL: Set loading to false AFTER setting user
-        console.log('[Auth] Login complete, user authenticated');
+        
+        // Use requestAnimationFrame to ensure state updates are batched properly
+        requestAnimationFrame(() => {
+          setIsLoading(false);
+          console.log('[Auth] ✅ Login complete - user authenticated, loading cleared');
+        });
+        
         return { success: true };
       }
       
-      console.error('[Auth] Login failed - no user data');
+      console.error('[Auth] ❌ Login failed - no user data');
       setIsLoading(false);
       return { success: false, error: 'Login failed' };
     } catch (error: any) {
-      console.error('[Auth] Login exception:', error);
+      const loginDuration = Date.now() - loginStartTime;
+      console.error(`[Auth] ❌ Login exception after ${loginDuration}ms:`, error);
       setIsLoading(false);
       return { success: false, error: error.message };
     }
   };
 
   const signup = async (email: string, password: string, username: string): Promise<{ success: boolean; error?: string }> => {
+    const signupStartTime = Date.now();
     try {
       setIsLoading(true);
-      console.log('[Auth] Signup attempt for:', email);
+      console.log('[Auth] 📝 Signup attempt for:', email);
       
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -233,13 +244,13 @@ export function useAuth() {
       });
       
       if (error) {
-        console.error('[Auth] Signup error:', error.message);
+        console.error('[Auth] ❌ Signup error:', error.message);
         setIsLoading(false);
         return { success: false, error: error.message };
       }
       
       if (data.user) {
-        console.log('[Auth] User created, waiting for profile creation...');
+        console.log('[Auth] ✅ User created, waiting for profile creation...');
         // Wait a moment for trigger to create profile
         await new Promise(resolve => setTimeout(resolve, 1000));
         
@@ -250,24 +261,33 @@ export function useAuth() {
           .single();
         
         if (profileError || !profile) {
-          console.error('[Auth] Profile creation error:', profileError);
+          console.error('[Auth] ❌ Profile creation error:', profileError);
           setIsLoading(false);
           return { success: false, error: 'Account created but profile setup failed. Please try logging in.' };
         }
         
-        console.log('[Auth] Profile created, setting user state...');
+        const signupDuration = Date.now() - signupStartTime;
+        console.log(`[Auth] ✅ Profile created in ${signupDuration}ms, setting user state...`);
         const authUser = mapSupabaseUser(data.user, profile);
+        
+        // CRITICAL FIX: Set user first, THEN clear loading to prevent bounce-back
         setUser(authUser);
-        setIsLoading(false); // CRITICAL: Set loading to false AFTER setting user
-        console.log('[Auth] Signup complete, user authenticated');
+        
+        // Use requestAnimationFrame to ensure state updates are batched properly
+        requestAnimationFrame(() => {
+          setIsLoading(false);
+          console.log('[Auth] ✅ Signup complete - user authenticated, loading cleared');
+        });
+        
         return { success: true };
       }
       
-      console.error('[Auth] Signup failed - no user data');
+      console.error('[Auth] ❌ Signup failed - no user data');
       setIsLoading(false);
       return { success: false, error: 'Signup failed' };
     } catch (error: any) {
-      console.error('[Auth] Signup exception:', error);
+      const signupDuration = Date.now() - signupStartTime;
+      console.error(`[Auth] ❌ Signup exception after ${signupDuration}ms:`, error);
       setIsLoading(false);
       return { success: false, error: error.message };
     }
