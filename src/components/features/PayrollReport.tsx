@@ -10,7 +10,7 @@ import { calculateMonthlyPayroll, formatCurrency } from '@/lib/payroll';
 import { getMonthYearOptions, formatMonthYear } from '@/lib/utils';
 import { exportPayrollReport, sendBulkPayslipEmails } from '@/lib/export';
 import { getDeductions, getEmployeeDeductions, calculateDeductions } from '@/lib/deductions';
-import { printPayslip } from '@/lib/payslip';
+import { printPayslip, printAllPayslips } from '@/lib/payslip';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 
@@ -26,6 +26,7 @@ export default function PayrollReport({ employees, timeEntries, organization }: 
   const [deductions, setDeductions] = useState<Deduction[]>([]);
   const [employeeDeductions, setEmployeeDeductions] = useState<Record<string, EmployeeDeduction[]>>({});
   const [isSendingEmails, setIsSendingEmails] = useState(false);
+  const [isPrintingAll, setIsPrintingAll] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -161,9 +162,60 @@ export default function PayrollReport({ employees, timeEntries, organization }: 
     }
   };
 
+  const handlePrintAll = () => {
+    if (payrollData.length === 0) {
+      toast({
+        title: 'No payslips to print',
+        description: 'No payroll data available for the selected period',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsPrintingAll(true);
+    try {
+      // Build payslip data for all employees
+      const allPayslipsData = payrollData.map(data => {
+        const employee = employees.find(e => e.id === data.employeeId);
+        if (!employee) return null;
+
+        return {
+          organization: organization || { 
+            companyName: 'Protocol Management System', 
+            contactEmail: '', 
+            contactPhone: '',
+            logoUrl: null 
+          },
+          employee: employee,
+          payroll: data,
+          period: formatMonthYear(selectedMonth),
+          payDate: new Date().toLocaleDateString(),
+        };
+      }).filter(Boolean);
+
+      // Print all payslips in one combined document
+      printAllPayslips(allPayslipsData as any);
+      
+      toast({
+        title: 'Printing All Payslips',
+        description: `Preparing ${allPayslipsData.length} payslips for printing...`,
+      });
+    } catch (error: any) {
+      console.error('Bulk print error:', error);
+      toast({
+        title: 'Print failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      // Reset printing state after a short delay
+      setTimeout(() => setIsPrintingAll(false), 1000);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="space-y-2">
           <Label>Select Month</Label>
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
@@ -197,17 +249,26 @@ export default function PayrollReport({ employees, timeEntries, organization }: 
           </Select>
         </div>
 
-        <div className="space-y-2">
+        <div className="md:col-span-3 space-y-2">
           <Label>&nbsp;</Label>
-          <div className="flex gap-2">
-            <Button onClick={handleExport} variant="outline" className="flex-1 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <Button onClick={handleExport} variant="outline" className="gap-2">
               <Download className="w-4 h-4" />
               Export CSV
             </Button>
             <Button 
+              onClick={handlePrintAll}
+              variant="default" 
+              className="gap-2 bg-blue-600 hover:bg-blue-700"
+              disabled={isPrintingAll || payrollData.length === 0}
+            >
+              <Printer className="w-4 h-4" />
+              {isPrintingAll ? 'Preparing...' : `Print All (${payrollData.length})`}
+            </Button>
+            <Button 
               onClick={handleBulkEmail} 
               variant="outline" 
-              className="flex-1 gap-2"
+              className="gap-2"
               disabled={isSendingEmails || payrollData.length === 0}
             >
               <Mail className="w-4 h-4" />
@@ -218,7 +279,7 @@ export default function PayrollReport({ employees, timeEntries, organization }: 
       </div>
 
       {payrollData.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card className="p-4 bg-blue-50 border-blue-200">
             <div className="flex items-center gap-3">
               <Clock className="w-8 h-8 text-blue-600" />
