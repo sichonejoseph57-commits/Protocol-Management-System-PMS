@@ -2,9 +2,9 @@ import { supabase } from '@/lib/supabase';
 import { Employee, TimeEntry, UserProfile, AdminPermission } from '@/types';
 import { logActivity } from './activityLog';
 
-// Cache for frequently accessed data (5 minute TTL)
+// Cache for frequently accessed data (10 minute TTL for better performance)
 const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes (increased from 5 for fewer DB queries)
 
 function getCached<T>(key: string): T | null {
   const cached = cache.get(key);
@@ -142,8 +142,8 @@ export const getEmployees = async (
     query = query.eq('position', options.position);
   }
 
-  // PERFORMANCE: Aggressive limit reduction - only 50 by default
-  const effectiveLimit = options?.limit || 50;
+  // PERFORMANCE: Reasonable default limit - 100 active employees
+  const effectiveLimit = options?.limit || 100;
   query = query.limit(effectiveLimit);
   
   if (options?.offset) {
@@ -365,13 +365,13 @@ export const getTimeEntries = async (
     query = query.eq('organization_id', organizationId);
   }
 
-  // PERFORMANCE: Default to last 3 days only for ultra-fast load
+  // PERFORMANCE: Default to last 7 days (was 3, increased for better UX)
   if (options?.startDate) {
     query = query.gte('date', options.startDate);
   } else {
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
       .toISOString().split('T')[0];
-    query = query.gte('date', threeDaysAgo);
+    query = query.gte('date', sevenDaysAgo);
   }
   
   if (options?.endDate) {
@@ -382,8 +382,8 @@ export const getTimeEntries = async (
     query = query.eq('employee_id', options.employeeId);
   }
 
-  // PERFORMANCE: Reduce default limit to 100 for speed
-  const effectiveLimit = options?.limit || 100;
+  // PERFORMANCE: Reasonable default limit - 200 time entries (1 week of data)
+  const effectiveLimit = options?.limit || 200;
   query = query.limit(effectiveLimit);
   
   if (options?.offset) {

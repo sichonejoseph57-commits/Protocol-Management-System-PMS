@@ -81,10 +81,8 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
     const loadStartTime = Date.now();
     console.log('[Dashboard] Starting data load...', { forceRefresh });
     
-    // Only show loading indicator on manual refresh
-    if (forceRefresh) {
-      setIsLoading(true);
-    }
+    // Show loading indicator on manual refresh OR first load
+    setIsLoading(true);
     
     try {
       
@@ -94,28 +92,28 @@ export default function Dashboard({ adminUser, organization, viewAsClientMode, o
         console.log('[Dashboard] Cache cleared for force refresh');
       }
       
-      // ULTRA-FAST: Load only last 3 days by default
-      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+      // ULTRA-FAST: Load only last 7 days by default (was 3, increased for better UX)
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
         .toISOString().split('T')[0];
       
-      // Ultra-fast 3 second timeout
+      // Ultra-fast 5 second timeout (was 3s, increased for reliability)
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => {
-          console.error('[Dashboard] Timeout after 3s');
-          reject(new Error('Loading timeout'));
-        }, 3000)
+          console.error('[Dashboard] Timeout after 5s');
+          reject(new Error('Loading timeout - check your connection'));
+        }, 5000)
       );
       
       // PARALLEL LOADING: All queries run simultaneously
       const dataPromise = Promise.all([
         getEmployees(adminUser.organizationId, {
           status: 'active',
-          limit: 50, // Reduced to 50 for speed
+          limit: 100, // Increased from 50 to 100 for better coverage
           skipCache: forceRefresh
         }),
         getTimeEntries(adminUser.organizationId, { 
-          startDate: threeDaysAgo,
-          limit: 100, // Reduced to 100 for speed
+          startDate: sevenDaysAgo,
+          limit: 200, // Increased from 100 to 200 for 7 days of data
           skipCache: forceRefresh
         }),
         getSystemSettings(),

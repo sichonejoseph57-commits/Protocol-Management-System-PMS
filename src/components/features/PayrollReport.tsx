@@ -106,11 +106,13 @@ export default function PayrollReport({ employees, timeEntries, organization }: 
     const employee = employees.find(e => e.id === data.employeeId);
     if (!employee) return;
     
+    // CRITICAL FIX: Match PayslipData interface structure
     printPayslip({
-      employee,
-      payrollData: data,
-      organization: organization || { companyName: 'Protocol Management System', logoUrl: null },
-      month: selectedMonth,
+      organization: organization || { companyName: 'Protocol Management System', contactEmail: '', logoUrl: null },
+      employee: employee,
+      payroll: data, // This is PayrollSummary from monthly calculation
+      period: formatMonthYear(selectedMonth),
+      payDate: new Date().toLocaleDateString(),
     });
   };
 
