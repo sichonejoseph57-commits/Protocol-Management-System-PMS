@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { CreditCard, Smartphone, DollarSign, Calendar, CheckCircle, Clock } from 'lucide-react';
+import PinConfirmationDialog from './PinConfirmationDialog';
 import {
   getActiveSubscription,
   getPaymentHistory,
@@ -35,6 +36,8 @@ export default function SubscriptionManagement({
   const [paymentMethod, setPaymentMethod] = useState<'airtel_money' | 'mtn_money'>('airtel_money');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showPinDialog, setShowPinDialog] = useState(false);
+  const [pendingPayment, setPendingPayment] = useState<any>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -97,15 +100,30 @@ export default function SubscriptionManagement({
         subscriptionId = newSub.id;
       }
 
-      // Process payment
+      // Initiate payment (generates PIN and sends SMS)
       const result = paymentMethod === 'airtel_money'
         ? await processAirtelMoneyPayment(organizationId, subscriptionId, amount, phoneNumber)
         : await processMTNMoneyPayment(organizationId, subscriptionId, amount, phoneNumber);
 
-      if (result.success) {
+      if (result.success && result.requires_pin) {
+        // Show PIN confirmation dialog
+        setPendingPayment({
+          amount,
+          phone: phoneNumber,
+          method: paymentMethod,
+          pin: result.pin,
+          pinExpiry: result.pin_expiry,
+          subscriptionId,
+        });
+        setShowPinDialog(true);
         toast({
-          title: 'Payment initiated',
-          description: 'Please check your phone to complete the payment',
+          title: 'PIN Sent',
+          description: result.message,
+        });
+      } else if (result.success) {
+        toast({
+          title: 'Payment completed',
+          description: 'Your subscription has been activated',
         });
         await loadData();
       } else {
@@ -121,6 +139,53 @@ export default function SubscriptionManagement({
         description: error.message,
         variant: 'destructive',
       });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePinConfirmation = async (pin: string) => {
+    if (!pendingPayment) return;
+
+    try {
+      setIsProcessing(true);
+
+      // Submit PIN to complete payment
+      const result = pendingPayment.method === 'airtel_money'
+        ? await processAirtelMoneyPayment(
+            organizationId,
+            pendingPayment.subscriptionId,
+            pendingPayment.amount,
+            pendingPayment.phone,
+            pin
+          )
+        : await processMTNMoneyPayment(
+            organizationId,
+            pendingPayment.subscriptionId,
+            pendingPayment.amount,
+            pendingPayment.phone,
+            pin
+          );
+
+      if (result.success) {
+        toast({
+          title: 'Payment Successful!',
+          description: 'Your subscription has been activated',
+        });
+        setShowPinDialog(false);
+        setPendingPayment(null);
+        setPhoneNumber('');
+        await loadData();
+      } else {
+        throw new Error(result.error || 'Invalid PIN');
+      }
+    } catch (error: any) {
+      toast({
+        title: 'PIN Verification Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+      throw error;
     } finally {
       setIsProcessing(false);
     }
@@ -354,6 +419,18 @@ export default function SubscriptionManagement({
           </div>
         )}
       </Card>
+
+      {/* PIN Confirmation Dialog */}
+      <PinConfirmationDialog
+        isOpen={showPinDialog}
+        onClose={() => {
+          setShowPinDialog(false);
+          setPendingPayment(null);
+        }}
+        onConfirm={handlePinConfirmation}
+        paymentDetails={pendingPayment}
+        isProcessing={isProcessing}
+      />
     </div>
   );
 }

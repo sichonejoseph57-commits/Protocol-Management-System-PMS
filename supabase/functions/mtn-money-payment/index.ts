@@ -9,7 +9,7 @@ serve(async (req) => {
   }
 
   try {
-    const { amount, phone_number, organization_id, subscription_id } = await req.json();
+    const { amount, phone_number, organization_id, subscription_id, pin } = await req.json();
 
     if (!amount || !phone_number || !organization_id) {
       return new Response(
@@ -26,21 +26,115 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // TODO: Integrate with MTN MoMo API
-    // For now, we'll simulate the payment process
-    // In production, you would call MTN MoMo's API here:
-    // 1. Request to pay
-    // 2. Get reference ID
-    // 3. Poll for payment status or use callback
+    // Verify PIN if provided (for completing pending payments)
+    if (pin) {
+      const { data: pendingPayment, error: pinError } = await supabaseAdmin
+        .from('payments')
+        .select('*')
+        .eq('organization_id', organization_id)
+        .eq('status', 'pending_pin')
+        .eq('metadata->pin', pin)
+        .single();
 
-    // Simulated MTN MoMo API call
-    const transactionId = `MTN_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    
-    // For demo purposes, automatically mark as completed
-    // In production, this would be pending until confirmed
-    const paymentStatus = 'completed'; // In production: 'pending'
+      if (pinError || !pendingPayment) {
+        console.error('[MTN] Invalid or expired PIN');
+        return new Response(
+          JSON.stringify({ error: 'Invalid or expired PIN. Please request a new payment.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
-    // Save payment record
+      // PIN verified - complete the payment
+      const transactionId = `MTN_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      
+      const { error: updateError } = await supabaseAdmin
+        .from('payments')
+        .update({
+          status: 'completed',
+          paid_at: new Date().toISOString(),
+          transaction_id: transactionId,
+          metadata: {
+            ...pendingPayment.metadata,
+            completed_at: new Date().toISOString(),
+            pin_verified: true,
+          },
+        })
+        .eq('id', pendingPayment.id);
+
+      if (updateError) {
+        console.error('[MTN] Payment update error:', updateError);
+        return new Response(
+          JSON.stringify({ error: 'Failed to complete payment', details: updateError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Update subscription status
+      if (pendingPayment.subscription_id) {
+        await supabaseAdmin
+          .from('subscriptions')
+          .update({
+            status: 'active',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', pendingPayment.subscription_id);
+
+        await supabaseAdmin
+          .from('organizations')
+          .update({
+            subscription_status: 'active',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', organization_id);
+      }
+
+      console.log('[MTN] Payment completed successfully:', transactionId);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          payment: { ...pendingPayment, status: 'completed', transaction_id: transactionId },
+          transaction_id: transactionId,
+          message: 'Payment completed successfully!',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Generate secure 6-digit PIN
+    const paymentPin = Math.floor(100000 + Math.random() * 900000).toString();
+    const pinExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    console.log('[MTN] Generated PIN:', paymentPin, 'Expires:', pinExpiry);
+
+    // Send PIN via SMS
+    try {
+      const smsResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-payment-pin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`,
+        },
+        body: JSON.stringify({
+          phone_number,
+          pin: paymentPin,
+          payment_amount: amount,
+          payment_method: 'MTN Money',
+        }),
+      });
+
+      if (!smsResponse.ok) {
+        console.error('[MTN] Failed to send PIN SMS');
+      } else {
+        console.log('[MTN] PIN SMS sent successfully');
+      }
+    } catch (smsError) {
+      console.error('[MTN] SMS error:', smsError);
+    }
+
+    const paymentStatus = 'pending_pin'; // Waiting for PIN confirmation
+
+    // Save payment record with PIN
     const { data: payment, error: paymentError } = await supabaseAdmin
       .from('payments')
       .insert({
@@ -49,13 +143,16 @@ serve(async (req) => {
         amount,
         currency: 'ZMW',
         payment_method: 'mtn_money',
-        transaction_id: transactionId,
+        transaction_id: null,
         phone_number,
         status: paymentStatus,
-        paid_at: paymentStatus === 'completed' ? new Date().toISOString() : null,
+        paid_at: null,
         metadata: {
           provider: 'mtn_money',
           phone: phone_number,
+          pin: paymentPin,
+          pin_expiry: pinExpiry.toISOString(),
+          initiated_at: new Date().toISOString(),
         },
       })
       .select()
@@ -69,31 +166,14 @@ serve(async (req) => {
       );
     }
 
-    // If payment successful, update subscription status
-    if (paymentStatus === 'completed' && subscription_id) {
-      await supabaseAdmin
-        .from('subscriptions')
-        .update({
-          status: 'active',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', subscription_id);
-
-      await supabaseAdmin
-        .from('organizations')
-        .update({
-          subscription_status: 'active',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', organization_id);
-    }
-
     return new Response(
       JSON.stringify({
         success: true,
         payment,
-        transaction_id: transactionId,
-        message: 'Payment processed successfully. Please check your phone for MTN Money prompt.',
+        pin: paymentPin,
+        pin_expiry: pinExpiry.toISOString(),
+        requires_pin: true,
+        message: `Payment initiated. A 6-digit PIN has been sent to ${phone_number}. Please enter the PIN to complete payment.`,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

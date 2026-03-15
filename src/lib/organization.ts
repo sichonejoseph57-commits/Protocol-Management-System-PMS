@@ -343,8 +343,9 @@ export async function processAirtelMoneyPayment(
   organizationId: string,
   subscriptionId: string,
   amount: number,
-  phoneNumber: string
-): Promise<{ success: boolean; transactionId?: string; error?: string }> {
+  phoneNumber: string,
+  pin?: string
+): Promise<{ success: boolean; requires_pin?: boolean; pin?: string; pin_expiry?: string; transactionId?: string; message?: string; error?: string }> {
   try {
     const { data, error } = await supabase.functions.invoke('airtel-money-payment', {
       body: {
@@ -352,6 +353,7 @@ export async function processAirtelMoneyPayment(
         subscription_id: subscriptionId,
         amount,
         phone_number: phoneNumber,
+        pin,
       },
     });
 
@@ -359,7 +361,11 @@ export async function processAirtelMoneyPayment(
 
     return {
       success: true,
+      requires_pin: data.requires_pin,
+      pin: data.pin,
+      pin_expiry: data.pin_expiry,
       transactionId: data.transaction_id,
+      message: data.message,
     };
   } catch (error: any) {
     console.error('Airtel Money payment error:', error);
@@ -374,8 +380,9 @@ export async function processMTNMoneyPayment(
   organizationId: string,
   subscriptionId: string,
   amount: number,
-  phoneNumber: string
-): Promise<{ success: boolean; transactionId?: string; error?: string }> {
+  phoneNumber: string,
+  pin?: string
+): Promise<{ success: boolean; requires_pin?: boolean; pin?: string; pin_expiry?: string; transactionId?: string; message?: string; error?: string }> {
   try {
     const { data, error } = await supabase.functions.invoke('mtn-money-payment', {
       body: {
@@ -383,6 +390,7 @@ export async function processMTNMoneyPayment(
         subscription_id: subscriptionId,
         amount,
         phone_number: phoneNumber,
+        pin,
       },
     });
 
@@ -390,7 +398,11 @@ export async function processMTNMoneyPayment(
 
     return {
       success: true,
+      requires_pin: data.requires_pin,
+      pin: data.pin,
+      pin_expiry: data.pin_expiry,
       transactionId: data.transaction_id,
+      message: data.message,
     };
   } catch (error: any) {
     console.error('MTN Money payment error:', error);
