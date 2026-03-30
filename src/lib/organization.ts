@@ -339,6 +339,9 @@ export async function getPaymentHistory(organizationId: string) {
   }));
 }
 
+// OWNER ACCOUNT: All payments route to this number
+const OWNER_PAYMENT_ACCOUNT = '0772739988';
+
 export async function processAirtelMoneyPayment(
   organizationId: string,
   subscriptionId: string,
@@ -347,18 +350,25 @@ export async function processAirtelMoneyPayment(
   pin?: string
 ): Promise<{ success: boolean; requires_pin?: boolean; pin?: string; pin_expiry?: string; transactionId?: string; message?: string; error?: string }> {
   try {
+    console.log(`[Payment] Processing Airtel Money payment: ${amount} ZMW from ${phoneNumber} to ${OWNER_PAYMENT_ACCOUNT}`);
+    
     const { data, error } = await supabase.functions.invoke('airtel-money-payment', {
       body: {
         organization_id: organizationId,
         subscription_id: subscriptionId,
         amount,
         phone_number: phoneNumber,
+        recipient_account: OWNER_PAYMENT_ACCOUNT, // Owner account
         pin,
       },
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error('[Payment] Airtel Money error:', error);
+      throw error;
+    }
 
+    console.log('[Payment] Airtel Money response:', data);
     return {
       success: true,
       requires_pin: data.requires_pin,
@@ -368,10 +378,10 @@ export async function processAirtelMoneyPayment(
       message: data.message,
     };
   } catch (error: any) {
-    console.error('Airtel Money payment error:', error);
+    console.error('[Payment] Airtel Money payment error:', error);
     return {
       success: false,
-      error: error.message || 'Payment failed',
+      error: error.message || 'Payment failed. Please try again.',
     };
   }
 }
@@ -384,18 +394,25 @@ export async function processMTNMoneyPayment(
   pin?: string
 ): Promise<{ success: boolean; requires_pin?: boolean; pin?: string; pin_expiry?: string; transactionId?: string; message?: string; error?: string }> {
   try {
+    console.log(`[Payment] Processing MTN Money payment: ${amount} ZMW from ${phoneNumber} to ${OWNER_PAYMENT_ACCOUNT}`);
+    
     const { data, error } = await supabase.functions.invoke('mtn-money-payment', {
       body: {
         organization_id: organizationId,
         subscription_id: subscriptionId,
         amount,
         phone_number: phoneNumber,
+        recipient_account: OWNER_PAYMENT_ACCOUNT, // Owner account
         pin,
       },
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error('[Payment] MTN Money error:', error);
+      throw error;
+    }
 
+    console.log('[Payment] MTN Money response:', data);
     return {
       success: true,
       requires_pin: data.requires_pin,
@@ -405,10 +422,10 @@ export async function processMTNMoneyPayment(
       message: data.message,
     };
   } catch (error: any) {
-    console.error('MTN Money payment error:', error);
+    console.error('[Payment] MTN Money payment error:', error);
     return {
       success: false,
-      error: error.message || 'Payment failed',
+      error: error.message || 'Payment failed. Please try again.',
     };
   }
 }
